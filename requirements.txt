@@ -1,0 +1,18 @@
+# USAR Python 3.12.10 
+
+# =========================
+# Para API funcionar 
+# =========================
+fastapi==0.135.2
+uvicorn==0.42.0
+mysql-connector-python==9.6.0
+pydantic==2.12.5
+python-dotenv==1.2.2
+
+# =========================
+# Notebook/ dataset do mentor
+# =========================
+pandas==3.0.1
+numpy==2.4.3
+ipykernel==7.2.0
+ipython==9.11.0
