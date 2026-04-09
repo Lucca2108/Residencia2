@@ -19,7 +19,7 @@ class TransacaoBase(BaseModel):
     categoria: str = Field(..., min_length=1, max_length=100)
     conta: str = Field(..., min_length=1, max_length=100)
     cidade: str = Field(..., min_length=1, max_length=100)
-    estado: str = Field(..., min_length=1, max_length=100)
+    estado: str | None = Field(None, max_length=100)
     pais: str = Field(..., min_length=1, max_length=100)
     latitude: float | None = Field(None, description="Latitude.")
     longitude: float | None = Field(None, description="Longitude.")

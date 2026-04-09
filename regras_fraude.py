@@ -23,6 +23,24 @@ def _normalizar_texto(valor: Any) -> str:
     return str(valor).strip().lower()
 
 
+def _to_float(valor: Any, default: float = 0.0) -> float:
+    if valor is None or valor == "":
+        return default
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(valor: Any, default: int = 0) -> int:
+    if valor is None or valor == "":
+        return default
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_hora(valor: Any) -> time | None:
     if valor is None:
         return None
@@ -37,7 +55,7 @@ def _parse_hora(valor: Any) -> time | None:
         if len(texto) == 8:
             hora, minuto, segundo = texto.split(":")
             return time(hour=int(hora), minute=int(minuto), second=int(segundo))
-    except ValueError:
+    except (ValueError, TypeError):
         return None
 
     return None
@@ -49,10 +67,11 @@ def avaliar_fraude(transacao: Any) -> dict[str, Any]:
     score = 0
     motivos: list[str] = []
 
-    valor = float(dados.get("valor") or 0)
-    tentativas = int(dados.get("tentativas") or 0)
+    valor = _to_float(dados.get("valor"))
+    tentativas = _to_int(dados.get("tentativas"))
     tipo_transacao = _normalizar_texto(dados.get("tipo_transacao"))
     pais = _normalizar_texto(dados.get("pais"))
+    estado = _normalizar_texto(dados.get("estado"))  # capturado, mas não obrigatório
     dispositivo = _normalizar_texto(dados.get("dispositivo"))
     horario = _parse_hora(dados.get("hora"))
 
@@ -85,6 +104,12 @@ def avaliar_fraude(transacao: Any) -> dict[str, Any]:
     if dispositivo in {"", "unknown", "desconhecido"}:
         score += 2
         motivos.append("dispositivo não identificado")
+
+    # Estado ausente não quebra a análise
+    # Se quiser, podemos transformar isso em regra:
+    # if pais in {"brasil", "br"} and estado == "":
+    #     score += 1
+    #     motivos.append("estado não informado")
 
     if score >= 6:
         classificacao = "alto"

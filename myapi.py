@@ -67,7 +67,12 @@ def buscar_transacoes(
     tipo_transacao: str | None = Query(None, description="Filtro exato por tipo de transação."),
     dispositivo: str | None = Query(None, description="Filtro por dispositivo (contém)."),
     estabelecimento: str | None = Query(None, description="Filtro por estabelecimento (contém)."),
-    is_fraude: bool | None = Query(None, description="Filtra transações fraudulentas ou não."),
+    is_fraude: int | None = Query(
+        None,
+        ge=0,
+        le=1,
+        description="Filtro por fraude: 1 = fraude, 0 = não fraude.",
+    ),
     data_inicial: str | None = Query(
         None,
         pattern=r"^\d{4}-\d{2}-\d{2}$",
@@ -80,8 +85,17 @@ def buscar_transacoes(
     ),
     valor_min: float | None = Query(None, description="Valor mínimo."),
     valor_max: float | None = Query(None, description="Valor máximo."),
-    limit: int = Query(100, ge=1, le=1000, description="Quantidade máxima de registros retornados."),
-    offset: int = Query(0, ge=0, description="Quantidade de registros ignorados antes da listagem."),
+    limit: int = Query(
+        100,
+        ge=1,
+        le=1000,
+        description="Quantidade máxima de registros retornados.",
+    ),
+    offset: int = Query(
+        0,
+        ge=0,
+        description="Quantidade de registros ignorados antes da listagem.",
+    ),
 ):
     return search_transacoes(
         categoria=categoria,
