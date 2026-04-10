@@ -72,7 +72,10 @@ INSERT INTO transacoes (
 
 
 def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    print(f"[DB] Tentando conectar em {DB_CONFIG['host']}:{DB_CONFIG['port']} | banco={DB_CONFIG['database']} | usuario={DB_CONFIG['user']}")
+    conn = mysql.connector.connect(**DB_CONFIG)
+    print("[DB] Conexão com MySQL estabelecida com sucesso.")
+    return conn
 
 
 def normalize_bool(value: Any) -> int:
@@ -116,26 +119,32 @@ def normalize_nullable_float(value: Any):
 
 
 def create_table_if_not_exists() -> None:
+    print("[DB] Entrando em create_table_if_not_exists()")
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(CREATE_TABLE_SQL)
         conn.commit()
+        print("[DB] Tabela 'transacoes' verificada/criada com sucesso.")
     finally:
         cursor.close()
         conn.close()
+        print("[DB] Conexão encerrada após create_table_if_not_exists().")
 
 
 def get_total_rows() -> int:
+    print("[DB] Entrando em get_total_rows()")
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT COUNT(*) FROM transacoes")
         total = cursor.fetchone()[0]
+        print(f"[DB] Total de registros na tabela: {total}")
         return int(total)
     finally:
         cursor.close()
         conn.close()
+        print("[DB] Conexão encerrada após get_total_rows().")
 
 
 def table_is_empty() -> bool:
@@ -143,10 +152,10 @@ def table_is_empty() -> bool:
 
 
 def read_json_records() -> list[tuple]:
+    print(f"[DB] Lendo arquivo JSON em: {JSON_FILE_PATH}")
+
     if not JSON_FILE_PATH.exists():
-        raise FileNotFoundError(
-            f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}"
-        )
+        raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
     with JSON_FILE_PATH.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -183,15 +192,22 @@ def read_json_records() -> list[tuple]:
             )
         )
 
+    print(f"[DB] JSON carregado com sucesso. Registros lidos: {len(rows)}")
     return rows
 
 
 def import_json_if_table_is_empty() -> None:
+    print("[DB] Entrando em import_json_if_table_is_empty()")
+
     if not table_is_empty():
+        print("[DB] Tabela já possui dados. Importação não será executada.")
         return
 
+    print("[DB] Tabela vazia. Iniciando importação do JSON...")
     rows = read_json_records()
+
     if not rows:
+        print("[DB] Nenhum registro encontrado no JSON.")
         return
 
     conn = get_connection()
@@ -199,12 +215,15 @@ def import_json_if_table_is_empty() -> None:
     try:
         cursor.executemany(INSERT_IMPORT_SQL, rows)
         conn.commit()
+        print(f"[DB] Importação concluída com sucesso. Registros inseridos: {len(rows)}")
     finally:
         cursor.close()
         conn.close()
+        print("[DB] Conexão encerrada após import_json_if_table_is_empty().")
 
 
 def adjust_auto_increment() -> None:
+    print("[DB] Entrando em adjust_auto_increment()")
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -216,15 +235,23 @@ def adjust_auto_increment() -> None:
 
         cursor.execute(f"ALTER TABLE transacoes AUTO_INCREMENT = {next_id}")
         conn.commit()
+        print(f"[DB] AUTO_INCREMENT ajustado para: {next_id}")
     finally:
         cursor.close()
         conn.close()
+        print("[DB] Conexão encerrada após adjust_auto_increment().")
 
 
 def init_database() -> None:
     try:
+        print("[DB] ===== Início da inicialização do banco =====")
         create_table_if_not_exists()
         import_json_if_table_is_empty()
         adjust_auto_increment()
+        print("[DB] ===== Inicialização do banco concluída com sucesso =====")
     except Error as exc:
+        print(f"[DB] Erro de banco durante init_database: {exc}")
         raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
+    except Exception as exc:
+        print(f"[DB] Erro inesperado durante init_database: {exc}")
+        raise RuntimeError(f"Erro inesperado ao inicializar banco de dados: {exc}") from exc

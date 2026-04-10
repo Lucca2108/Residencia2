@@ -18,8 +18,16 @@ from services import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_database()
+    print("[APP] Iniciando aplicação...")
+    try:
+        print("[APP] Chamando init_database()...")
+        init_database()
+        print("[APP] init_database() concluído com sucesso.")
+    except Exception as exc:
+        print(f"[APP] Falha ao inicializar banco: {exc}")
+        print("[APP] A aplicação continuará subindo para fins de diagnóstico.")
     yield
+    print("[APP] Encerrando aplicação...")
 
 
 app = FastAPI(
