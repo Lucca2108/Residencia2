@@ -9,19 +9,34 @@ import mysql.connector
 from mysql.connector import Error
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
+ENV_FILE_PATH = BASE_DIR / ".env"
 
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "user": os.getenv("DB_USER", "Test"),
-    "password": os.getenv("DB_PASSWORD", "123456"),
-    "database": os.getenv("DB_NAME", "bancodobrasil"),
-    "port": int(os.getenv("DB_PORT", "3306")),
-}
+
+def load_environment() -> None:
+    """
+    Carrega o arquivo .env a partir do caminho absoluto da raiz do projeto.
+    O override=True garante que os valores do .env sejam reaplicados.
+    """
+    load_dotenv(dotenv_path=ENV_FILE_PATH, override=True)
+
+
+def get_db_config() -> dict:
+    """
+    Lê as variáveis de ambiente de forma dinâmica sempre que a conexão for criada.
+    """
+    load_environment()
+
+    return {
+        "host": os.getenv("DB_HOST", "localhost"),
+        "user": os.getenv("DB_USER", "root"),
+        "password": os.getenv("DB_PASSWORD", ""),
+        "database": os.getenv("DB_NAME", "bancodobrasil"),
+        "port": int(os.getenv("DB_PORT", "3306")),
+    }
+
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS transacoes (
@@ -72,7 +87,8 @@ INSERT INTO transacoes (
 
 
 def get_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    config = get_db_config()
+    return mysql.connector.connect(**config)
 
 
 def normalize_bool(value: Any) -> int:
@@ -144,9 +160,7 @@ def table_is_empty() -> bool:
 
 def read_json_records() -> list[tuple]:
     if not JSON_FILE_PATH.exists():
-        raise FileNotFoundError(
-            f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}"
-        )
+        raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
     with JSON_FILE_PATH.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -223,6 +237,7 @@ def adjust_auto_increment() -> None:
 
 def init_database() -> None:
     try:
+        load_environment()
         create_table_if_not_exists()
         import_json_if_table_is_empty()
         adjust_auto_increment()

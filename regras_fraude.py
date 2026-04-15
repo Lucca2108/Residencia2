@@ -105,12 +105,6 @@ def avaliar_fraude(transacao: Any) -> dict[str, Any]:
         score += 2
         motivos.append("dispositivo não identificado")
 
-    # Estado ausente não quebra a análise
-    # Se quiser, podemos transformar isso em regra:
-    # if pais in {"brasil", "br"} and estado == "":
-    #     score += 1
-    #     motivos.append("estado não informado")
-
     if score >= 6:
         classificacao = "alto"
     elif score >= 4:
