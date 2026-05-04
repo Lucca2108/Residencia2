@@ -17,4 +17,12 @@ numpy==2.4.3
 ipykernel==7.2.0
 ipython==9.11.0
 
+# =========================
+# Para Machine Learning funcionar e monta o dashboard
+# =========================
+scikit-learn
+joblib
+streamlit
+plotly
+
 #Para baixar use o comando:     pip install -r requirements.txt

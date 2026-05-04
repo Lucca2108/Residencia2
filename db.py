@@ -32,7 +32,7 @@ def get_db_config() -> dict:
     return {
         "host": os.getenv("DB_HOST", "localhost"),
         "user": os.getenv("DB_USER", "root"),
-        "password": os.getenv("DB_PASSWORD", ""),
+        "password": os.getenv("DB_PASSWORD", "tiradentes"),
         "database": os.getenv("DB_NAME", "bancodobrasil"),
         "port": int(os.getenv("DB_PORT", "3306")),
     }
@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS transacoes (
     tentativas INT NOT NULL DEFAULT 1,
     ip_origem VARCHAR(45) NOT NULL,
     is_fraude BOOLEAN NOT NULL DEFAULT FALSE,
+    status_validacao VARCHAR(50) DEFAULT 'aprovada',
+    PRIMARY KEY (id)
+)
+"""
+
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS viagens (
+    id INT NOT NULL AUTO_INCREMENT,
+    conta VARCHAR(100) NOT NULL,
+    cidade_destino VARCHAR(100) NOT NULL,
+    estado_destino VARCHAR(100),
+    pais_destino VARCHAR(100) NOT NULL,
+    data_inicio DATE NOT NULL,
+    data_fim DATE NOT NULL,
     PRIMARY KEY (id)
 )
 """
@@ -160,7 +174,8 @@ def table_is_empty() -> bool:
 
 def read_json_records() -> list[tuple]:
     if not JSON_FILE_PATH.exists():
-        raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
+        raise FileNotFoundError(
+            f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
     with JSON_FILE_PATH.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -170,7 +185,8 @@ def read_json_records() -> list[tuple]:
     elif isinstance(payload, dict) and isinstance(payload.get("transacoes"), list):
         items = payload["transacoes"]
     else:
-        raise ValueError("Formato de JSON inválido. Esperado: lista de objetos.")
+        raise ValueError(
+            "Formato de JSON inválido. Esperado: lista de objetos.")
 
     rows = []
     for item in items:
@@ -242,6 +258,8 @@ def init_database() -> None:
         import_json_if_table_is_empty()
         adjust_auto_increment()
     except Error as exc:
-        raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
+        raise RuntimeError(
+            f"Erro ao inicializar banco de dados: {exc}") from exc
     except Exception as exc:
-        raise RuntimeError(f"Erro inesperado ao inicializar banco de dados: {exc}") from exc
+        raise RuntimeError(
+            f"Erro inesperado ao inicializar banco de dados: {exc}") from exc

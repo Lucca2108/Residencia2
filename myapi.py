@@ -2,17 +2,22 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from typing import List
+
 from fastapi import FastAPI, HTTPException, Query, Response, status
 
 from db import init_database
-from schemas import TransacaoCreate, TransacaoResponse, TransacaoUpdate
+from schemas import TransacaoCreate, TransacaoResponse, TransacaoUpdate, ViagemCreate, ViagemResponse, ValidacaoTransacao
 from services import (
     create_transacao,
+    create_viagem,
     delete_transacao,
     get_transacao_by_id,
     list_transacoes,
     search_transacoes,
     update_transacao,
+    validar_transacao_cliente,
+    get_viagens_por_conta
 )
 
 
@@ -59,6 +64,16 @@ def listar_transacoes(
 ):
     return list_transacoes(limit=limit, offset=offset)
 
+@app.get(
+    "/viagens/{conta}",
+    response_model=list[ViagemResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Listar viagens de uma conta",
+    description="Retorna todo o histórico de viagens cadastradas para uma conta específica, ordenado das mais recentes para as mais antigas."
+)
+def listar_viagens(conta: str):
+    viagens = get_viagens_por_conta(conta)
+    return viagens
 
 @app.get(
     "/transacoes/search",
@@ -67,14 +82,19 @@ def listar_transacoes(
     description="Busca transações usando filtros opcionais.",
 )
 def buscar_transacoes(
-    categoria: str | None = Query(None, description="Filtro por categoria (contém)."),
+    categoria: str | None = Query(
+        None, description="Filtro por categoria (contém)."),
     conta: str | None = Query(None, description="Filtro por conta (contém)."),
-    cidade: str | None = Query(None, description="Filtro por cidade (contém)."),
+    cidade: str | None = Query(
+        None, description="Filtro por cidade (contém)."),
     estado: str | None = Query(None, description="Filtro exato por estado."),
     pais: str | None = Query(None, description="Filtro exato por país."),
-    tipo_transacao: str | None = Query(None, description="Filtro exato por tipo de transação."),
-    dispositivo: str | None = Query(None, description="Filtro por dispositivo (contém)."),
-    estabelecimento: str | None = Query(None, description="Filtro por estabelecimento (contém)."),
+    tipo_transacao: str | None = Query(
+        None, description="Filtro exato por tipo de transação."),
+    dispositivo: str | None = Query(
+        None, description="Filtro por dispositivo (contém)."),
+    estabelecimento: str | None = Query(
+        None, description="Filtro por estabelecimento (contém)."),
     is_fraude: int | None = Query(
         None,
         ge=0,
@@ -177,3 +197,29 @@ def excluir_transacao(transacao_id: int):
             detail="Transação não encontrada.",
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/viagens",
+    response_model=ViagemResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar aviso de viagem",
+    description="Permite ao cliente registrar previamente uma viagem para reduzir falsos positivos."
+)
+def registrar_viagem(payload: ViagemCreate):
+    return create_viagem(payload)
+
+@app.post(
+    "/transacoes/{transacao_id}/validar",
+    response_model=TransacaoResponse,
+    summary="Validação do Cliente (Ação via Push/SMS)",
+    description="Permite ao usuário confirmar se uma transação suspeita é legítima ou reportar como fraude confirmada."
+)
+def validar_transacao(transacao_id: int, payload: ValidacaoTransacao):
+    transacao_atualizada = validar_transacao_cliente(transacao_id, payload.confirmada)
+    if not transacao_atualizada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transação não encontrada."
+        )
+    return transacao_atualizada

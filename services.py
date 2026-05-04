@@ -7,6 +7,8 @@ from typing import Any
 from db import get_connection
 from regras_fraude import avaliar_fraude
 from schemas import TransacaoCreate, TransacaoUpdate
+from schemas import ViagemCreate
+from ml_motor import prever_anomalia
 
 
 def normalize_bool(value: Any) -> bool:
@@ -216,32 +218,82 @@ def _format_payload_hora(hora: str) -> str:
     return hora if len(hora) == 8 else f"{hora}:00"
 
 
+def get_estatisticas_conta(conta: str) -> float:
+    """Calcula a média histórica de gastos da conta."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT AVG(valor) as media_valor FROM transacoes WHERE conta = %s AND is_fraude = 0",
+            (conta,)
+        )
+        row = cursor.fetchone()
+        return float(row["media_valor"]) if row and row["media_valor"] else 0.0
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_frequencia_recente(conta: str, data_tx: str, hora_tx: str, minutos: int = 30) -> int:
+    """Conta o número de transações da conta nos últimos X minutos em relação à transação atual."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        sql = """
+        SELECT COUNT(*) FROM transacoes 
+        WHERE conta = %s 
+        AND TIMESTAMP(data, hora) BETWEEN TIMESTAMP(%s, %s) - INTERVAL %s MINUTE AND TIMESTAMP(%s, %s)
+        """
+        cursor.execute(sql, (conta, data_tx, hora_tx,
+                       minutos, data_tx, hora_tx))
+        total = cursor.fetchone()[0]
+        return int(total)
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def create_transacao(payload: TransacaoCreate) -> dict[str, Any]:
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        analise_fraude = avaliar_fraude(payload)
+        hora_formatada = _format_payload_hora(payload.hora)
+        media_hist = get_estatisticas_conta(payload.conta)
+        freq = get_frequencia_recente(
+            payload.conta, payload.data, hora_formatada, minutos=30)
+        viagens_ativas = get_viagem_ativa_por_conta(
+            payload.conta, payload.data)
+        em_viagem_legitima = False
+
+        for viagem in viagens_ativas:
+            pais_destino = str(viagem.get("pais_destino", "")).strip().lower()
+            estado_destino = str(viagem.get(
+                "estado_destino", "")).strip().lower()
+            if payload.pais.lower() == pais_destino:
+                em_viagem_legitima = True
+                break
+            if payload.estado and payload.estado.lower() == estado_destino:
+                em_viagem_legitima = True
+                break
+
+        resultado_ia = prever_anomalia(payload.dict())
+        analise_fraude = avaliar_fraude(payload, media_historica=media_hist,
+                                        frequencia_recente=freq, em_viagem=em_viagem_legitima, resultado_ml=resultado_ia)
+        
+        is_fraude = 1 if analise_fraude["is_fraude"] else 0
+        status_validacao = 'pendente' if is_fraude == 1 else 'aprovada'
+
+        if status_validacao == 'pendente':
+            print(f"⚠️ [ALERTA ANTIFRAUDE] Transação suspeita detectada!")
+            print(f"📱 Disparando Push Notification/SMS para o cliente da conta {payload.conta}...")
+            print(f"Motivos: {', '.join(analise_fraude['motivos'])}")
 
         sql = """
         INSERT INTO transacoes (
-            valor,
-            data,
-            hora,
-            dia_semana,
-            categoria,
-            conta,
-            cidade,
-            estado,
-            pais,
-            latitude,
-            longitude,
-            tipo_transacao,
-            dispositivo,
-            estabelecimento,
-            tentativas,
-            ip_origem,
-            is_fraude
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            valor, data, hora, dia_semana, categoria, conta, cidade, estado, pais, 
+            latitude, longitude, tipo_transacao, dispositivo, estabelecimento, 
+            tentativas, ip_origem, is_fraude, status_validacao
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         values = (
@@ -262,12 +314,89 @@ def create_transacao(payload: TransacaoCreate) -> dict[str, Any]:
             payload.tentativas,
             payload.ip_origem,
             1 if analise_fraude["is_fraude"] else 0,
+            status_validacao
         )
 
         cursor.execute(sql, values)
         conn.commit()
         transacao_id = cursor.lastrowid
         return get_transacao_by_id(transacao_id)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def create_viagem(payload: ViagemCreate) -> dict[str, Any]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        sql = """
+        INSERT INTO viagens (conta, cidade_destino, estado_destino, pais_destino, data_inicio, data_fim)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        values = (
+            payload.conta,
+            payload.cidade_destino,
+            payload.estado_destino,
+            payload.pais_destino,
+            payload.data_inicio,
+            payload.data_fim
+        )
+        cursor.execute(sql, values)
+        conn.commit()
+        viagem_id = cursor.lastrowid
+
+        return {
+            "id": viagem_id,
+            "conta": payload.conta,
+            "cidade_destino": payload.cidade_destino,
+            "estado_destino": payload.estado_destino,
+            "pais_destino": payload.pais_destino,
+            "data_inicio": payload.data_inicio,
+            "data_fim": payload.data_fim
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_viagem_ativa_por_conta(conta: str, data_transacao: str) -> list[dict[str, Any]]:
+    """Busca viagens ativas de uma conta em uma data específica."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = """
+        SELECT * FROM viagens 
+        WHERE conta = %s AND %s BETWEEN data_inicio AND data_fim
+        """
+        cursor.execute(sql, (conta, data_transacao))
+        viagens = cursor.fetchall()
+        for viagem in viagens:
+            if viagem.get('data_inicio'):
+                viagem['data_inicio'] = str(viagem['data_inicio'])
+            if viagem.get('data_fim'):
+                viagem['data_fim'] = str(viagem['data_fim'])
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+        
+def get_viagens_por_conta(conta: str) -> list[dict[str, Any]]:
+    """Busca todo o histórico de viagens cadastradas para uma conta."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = "SELECT * FROM viagens WHERE conta = %s ORDER BY data_inicio DESC"
+        cursor.execute(sql, (conta,))
+        viagens = cursor.fetchall()
+        
+        for viagem in viagens:
+            if viagem.get('data_inicio'):
+                viagem['data_inicio'] = str(viagem['data_inicio'])
+            if viagem.get('data_fim'):
+                viagem['data_fim'] = str(viagem['data_fim'])
+                
+        return viagens
     finally:
         cursor.close()
         conn.close()
@@ -342,6 +471,30 @@ def delete_transacao(transacao_id: int) -> bool:
         cursor.execute("DELETE FROM transacoes WHERE id = %s", (transacao_id,))
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        cursor.close()
+        conn.close()
+        
+def validar_transacao_cliente(transacao_id: int, confirmada: bool) -> dict[str, Any] | None:
+    """Atualiza o status da transação baseado na resposta do cliente no app."""
+    transacao = get_transacao_by_id(transacao_id)
+    if not transacao:
+        return None
+
+    novo_status = 'confirmada_pelo_cliente' if confirmada else 'fraude_confirmada'
+    is_fraude_atualizado = 0 if confirmada else 1
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        sql = """
+        UPDATE transacoes 
+        SET status_validacao = %s, is_fraude = %s
+        WHERE id = %s
+        """
+        cursor.execute(sql, (novo_status, is_fraude_atualizado, transacao_id))
+        conn.commit()
+        return get_transacao_by_id(transacao_id)
     finally:
         cursor.close()
         conn.close()

@@ -14,7 +14,8 @@ def _to_dict(transacao: Any) -> dict[str, Any]:
     if hasattr(transacao, "dict"):
         return transacao.dict()
 
-    raise TypeError("Tipo de transação não suportado para avaliação de fraude.")
+    raise TypeError(
+        "Tipo de transação não suportado para avaliação de fraude.")
 
 
 def _normalizar_texto(valor: Any) -> str:
@@ -61,19 +62,44 @@ def _parse_hora(valor: Any) -> time | None:
     return None
 
 
-def avaliar_fraude(transacao: Any) -> dict[str, Any]:
+def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_recente: int = 0, em_viagem: bool = False, resultado_ml: dict[str, Any] = None) -> dict[str, Any]:
     dados = _to_dict(transacao)
 
     score = 0
     motivos: list[str] = []
 
+    resultado_ml = resultado_ml or {}
+
     valor = _to_float(dados.get("valor"))
     tentativas = _to_int(dados.get("tentativas"))
     tipo_transacao = _normalizar_texto(dados.get("tipo_transacao"))
     pais = _normalizar_texto(dados.get("pais"))
-    estado = _normalizar_texto(dados.get("estado"))  # capturado, mas não obrigatório
     dispositivo = _normalizar_texto(dados.get("dispositivo"))
     horario = _parse_hora(dados.get("hora"))
+
+    if media_historica > 0 and valor > (media_historica * 3):
+        score += 3
+        motivos.append(
+            f"valor 3x maior que a média histórica (Média: R$ {media_historica:.2f})")
+
+    if frequencia_recente >= 3:
+        score += 3
+        motivos.append(
+            f"alta frequência: {frequencia_recente} transações nos últimos 30 min")
+
+    if pais not in {"", "brasil", "br"}:
+        if em_viagem:
+            motivos.append(
+                "transação internacional (justificada por viagem cadastrada)")
+        else:
+            score += 2
+            motivos.append("transação fora do país esperado")
+
+    if resultado_ml.get("is_anomalia_ml"):
+        score += 4
+        score_decisao = resultado_ml.get("score_ml", 0)
+        motivos.append(
+            f"anomalia comportamental detectada por IA (score_ml: {score_decisao:.2f})")
 
     if valor >= 5000:
         score += 3
