@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from mysql.connector import Error
 
-from app.core.config import load_environment
 from app.db.connection import get_connection
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -14,31 +15,7 @@ DATA_DIR = BASE_DIR / "data"
 JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
 ENV_FILE_PATH = BASE_DIR / ".env"
 
-
-def load_environment() -> None:
-    """
-    Carrega o arquivo .env a partir do caminho absoluto da raiz do projeto.
-    O override=True garante que os valores do .env sejam reaplicados.
-    """
-    load_dotenv(dotenv_path=ENV_FILE_PATH, override=True)
-
-
-def get_db_config() -> dict:
-    """
-    Lê as variáveis de ambiente de forma dinâmica sempre que a conexão for criada.
-    """
-    load_environment()
-
-    return {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "user": os.getenv("DB_USER", "root"),
-        "password": os.getenv("DB_PASSWORD", "tiradentes"),
-        "database": os.getenv("DB_NAME", "bancodobrasil"),
-        "port": int(os.getenv("DB_PORT", "3306")),
-    }
-
-
-CREATE_TABLE_SQL = """
+CREATE_TABLE_TRANSACOES_SQL = """
 CREATE TABLE IF NOT EXISTS transacoes (
     id INT NOT NULL AUTO_INCREMENT,
     valor DECIMAL(15, 2) NOT NULL,
@@ -63,7 +40,7 @@ CREATE TABLE IF NOT EXISTS transacoes (
 )
 """
 
-CREATE_TABLE_SQL = """
+CREATE_TABLE_VIAGENS_SQL = """
 CREATE TABLE IF NOT EXISTS viagens (
     id INT NOT NULL AUTO_INCREMENT,
     conta VARCHAR(100) NOT NULL,
@@ -100,19 +77,19 @@ INSERT INTO transacoes (
 """
 
 
+def load_environment() -> None:
+    load_dotenv(dotenv_path=ENV_FILE_PATH, override=True)
+
+
 def normalize_bool(value: Any) -> int:
     if isinstance(value, bool):
         return 1 if value else 0
-
     if value is None:
         return 0
-
     if isinstance(value, (int, float)):
         return 1 if value else 0
-
     if isinstance(value, str):
         return 1 if value.strip().lower() in {"1", "true", "t", "yes", "y", "sim"} else 0
-
     return 0
 
 
@@ -168,8 +145,7 @@ def table_is_empty() -> bool:
 
 def read_json_records() -> list[tuple]:
     if not JSON_FILE_PATH.exists():
-        raise FileNotFoundError(
-            f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
+        raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
     with JSON_FILE_PATH.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -179,8 +155,7 @@ def read_json_records() -> list[tuple]:
     elif isinstance(payload, dict) and isinstance(payload.get("transacoes"), list):
         items = payload["transacoes"]
     else:
-        raise ValueError(
-            "Formato de JSON inválido. Esperado: lista de objetos.")
+        raise ValueError("Formato de JSON inválido. Esperado: lista de objetos.")
 
     rows: list[tuple] = []
     for item in items:
@@ -250,8 +225,6 @@ def init_database() -> None:
         import_json_if_table_is_empty()
         adjust_auto_increment()
     except Error as exc:
-        raise RuntimeError(
-            f"Erro ao inicializar banco de dados: {exc}") from exc
+        raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
     except Exception as exc:
-        raise RuntimeError(
-            f"Erro inesperado ao inicializar banco de dados: {exc}") from exc
+        raise RuntimeError(f"Erro inesperado ao inicializar banco de dados: {exc}") from exc

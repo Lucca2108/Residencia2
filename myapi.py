@@ -6,19 +6,19 @@ from typing import List
 
 from fastapi import FastAPI, HTTPException, Query, Response, status
 
-from db import init_database
-from schemas import TransacaoCreate, TransacaoResponse, TransacaoUpdate, ViagemCreate, ViagemResponse, ValidacaoTransacao
-from services import (
+from app.db.init import init_database
+from app.schemas import TransacaoCreate, TransacaoResponse, TransacaoUpdate, ViagemCreate, ViagemResponse, ValidacaoTransacao
+from app.services import (
     create_transacao,
     create_viagem,
     delete_transacao,
-    get_transacao_by_id,
     list_transacoes,
     search_transacoes,
     update_transacao,
     validar_transacao_cliente,
     get_viagens_por_conta
 )
+from app.repositories.transacao_repository import get_transacao_by_id
 
 
 @asynccontextmanager
