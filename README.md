@@ -99,20 +99,31 @@ A API disponibiliza interface interativa via Swagger para testes dos endpoints.
 
 ## Estrutura do Projeto
 
-Uma organização típica do projeto é:
+O projeto agora está organizado em pacotes para separar claramente as camadas de configuração, dados, domínio, serviços e API:
 
 ```bash
 .
-├── myapi.py                  # Arquivo principal da API
-├── services.py              # Regras de acesso a dados e operações principais
-├── schemas.py               # Modelos Pydantic para validação e resposta
-├── regras_fraude.py         # Lógica de avaliação de fraude/anomalia
-├── db.py                    # Configuração de conexão com o banco de dados
+├── app/
+│   ├── api/
+│   │   └── routers/
+│   ├── core/
+│   ├── db/
+│   ├── domain/
+│   ├── repositories/
+│   ├── services/
+│   ├── utils/
+│   └── schemas.py
+├── dashboard/
+│   └── app.py
+├── myapi.py                  # Wrapper da API para compatibilidade com uvicorn
+├── dashboard.py             # Wrapper do dashboard para compatibilidade com streamlit
 ├── requirements.txt         # Dependências do projeto
-├── .env                     # Variáveis de ambiente
 └── data/
     └── transacoes_treino.json
-
+```
 
 Como iniciar a API no VS Code
-Abra o projeto no VS Code, abra o terminal integrado e ative o ambiente virtual. Antes de iniciar a API, crie o banco bancodobrasil no MySQL, preencha corretamente o arquivo .env.example com DB_HOST, DB_USER, DB_PASSWORD, DB_NAME e DB_PORT. Em geral, será necessário alterar apenas o usuário e a senha. Garanta também que o schema/banco esteja disponível para conexão. Em seguida, execute o comando uvicorn myapi:app --reload. Depois disso, acesse http://127.0.0.1:8000/docs no navegador para abrir o Swagger e testar os endpoints da API.
+Abra o projeto no VS Code, abra o terminal integrado e ative o ambiente virtual. Antes de iniciar a API, crie o banco bancodobrasil no MySQL, preencha corretamente o arquivo .env.example com DB_HOST, DB_USER, DB_PASSWORD, DB_NAME e DB_PORT. Em geral, será necessário alterar apenas o usuário e a senha. Garanta também que o schema/banco esteja disponível para conexão. Em seguida, execute o comando `uvicorn myapi:app --reload`. Depois disso, acesse `http://127.0.0.1:8000/docs` no navegador para abrir o Swagger e testar os endpoints da API.
+
+Como iniciar o dashboard
+Execute `streamlit run dashboard.py` para abrir o painel de visualização.
