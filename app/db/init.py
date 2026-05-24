@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from mysql.connector import Error
 
-from app.core.config import load_environment
 from app.db.connection import get_connection
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
+ENV_FILE_PATH = BASE_DIR / ".env"
 
 
 CREATE_TABLE_TRANSACOES_SQL = """
@@ -76,19 +78,19 @@ INSERT INTO transacoes (
 """
 
 
+def load_environment() -> None:
+    load_dotenv(dotenv_path=ENV_FILE_PATH, override=True)
+
+
 def normalize_bool(value: Any) -> int:
     if isinstance(value, bool):
         return 1 if value else 0
-
     if value is None:
         return 0
-
     if isinstance(value, (int, float)):
         return 1 if value else 0
-
     if isinstance(value, str):
         return 1 if value.strip().lower() in {"1", "true", "t", "yes", "y", "sim"} else 0
-
     return 0
 
 
