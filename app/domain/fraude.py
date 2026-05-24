@@ -14,6 +14,7 @@ def _to_dict(transacao: Any) -> dict[str, Any]:
     if hasattr(transacao, "dict"):
         return transacao.dict()
 
+
     raise TypeError("Tipo de transação não suportado para avaliação de fraude.")
 
 

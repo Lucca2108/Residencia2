@@ -5,6 +5,7 @@ import plotly.express as px
 from app.db.connection import get_connection
 
 
+
 def build_dashboard() -> None:
     st.set_page_config(page_title="Dashboard Antifraude", page_icon="🛡️", layout="wide")
     st.title("🛡️ Painel de Controle Antifraude")

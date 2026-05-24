@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE_PATH = BASE_DIR / ".env"
 
 
+
 def load_environment() -> None:
     load_dotenv(dotenv_path=ENV_FILE_PATH, override=True)
 

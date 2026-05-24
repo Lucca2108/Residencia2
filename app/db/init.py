@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
 
+
 CREATE_TABLE_TRANSACOES_SQL = """
 CREATE TABLE IF NOT EXISTS transacoes (
     id INT NOT NULL AUTO_INCREMENT,

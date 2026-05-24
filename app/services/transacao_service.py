@@ -16,6 +16,7 @@ from app.repositories.viagem_repository import get_viagem_ativa_por_conta
 from app.schemas import TransacaoCreate, TransacaoUpdate
 
 
+
 def _format_payload_hora(hora: str) -> str:
     return hora if len(hora) == 8 else f"{hora}:00"
 

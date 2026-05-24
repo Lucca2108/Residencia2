@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 
+
 def normalize_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
