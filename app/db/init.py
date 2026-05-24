@@ -15,6 +15,7 @@ DATA_DIR = BASE_DIR / "data"
 JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
 ENV_FILE_PATH = BASE_DIR / ".env"
 
+
 CREATE_TABLE_TRANSACOES_SQL = """
 CREATE TABLE IF NOT EXISTS transacoes (
     id INT NOT NULL AUTO_INCREMENT,

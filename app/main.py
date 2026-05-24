@@ -9,6 +9,7 @@ from app.api.routers.viagens import router as viagens_router
 from app.db.init import init_database
 
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[APP] Iniciando aplicação...")

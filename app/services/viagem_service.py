@@ -17,5 +17,6 @@ def create_viagem(payload: ViagemCreate) -> dict[str, object]:
     }
 
 
+
 def get_viagens_por_conta(conta: str) -> list[dict[str, object]]:
     return _get_viagens_por_conta(conta)

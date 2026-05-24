@@ -12,6 +12,7 @@ from app.db.connection import get_connection
 MODEL_PATH = Path(__file__).resolve().parents[2] / "modelo_iforest.pkl"
 
 
+
 def treinar_modelo_iforest() -> None:
     print("[ML] Iniciando extração de dados para treinamento...")
     conn = get_connection()
