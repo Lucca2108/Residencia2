@@ -100,7 +100,7 @@ def build_dashboard() -> None:
 
     st.divider()
 
-    st.subheader("⚠️ Alertas Aguardando Validação do Cliente (Épico 3)")
+    st.subheader("⚠️ Alertas Aguardando Validação do Cliente")
     if "status_validacao" in df.columns:
         df_pendentes = df[df["status_validacao"] == "pendente"]
         if not df_pendentes.empty:

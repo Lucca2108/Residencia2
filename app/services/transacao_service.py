@@ -78,11 +78,37 @@ def update_transacao(transacao_id: int, payload: TransacaoUpdate):
     if not existing:
         return None
 
-    analise_fraude = avaliar_fraude(payload)
+    hora_formatada = _format_payload_hora(payload.hora)
+    media_hist = get_estatisticas_conta(payload.conta)
+    freq = get_frequencia_recente(payload.conta, payload.data, hora_formatada)
+
+    viagens_ativas = get_viagem_ativa_por_conta(payload.conta, payload.data)
+    em_viagem_legitima = False
+    for viagem in viagens_ativas:
+        pais_destino = str(viagem.get("pais_destino", "")).strip().lower()
+        estado_destino = str(viagem.get("estado_destino", "")).strip().lower()
+        if payload.pais.lower() == pais_destino:
+            em_viagem_legitima = True
+            break
+        if payload.estado and payload.estado.lower() == estado_destino:
+            em_viagem_legitima = True
+            break
+
+    resultado_ia = prever_anomalia(payload.model_dump())
+    analise_fraude = avaliar_fraude(
+        payload,
+        media_historica=media_hist,
+        frequencia_recente=freq,
+        em_viagem=em_viagem_legitima,
+        resultado_ml=resultado_ia,
+    )
+
     values = payload.model_dump()
-    values["hora"] = _format_payload_hora(payload.hora)
+    values["hora"] = hora_formatada
     values["is_fraude"] = 1 if analise_fraude["is_fraude"] else 0
     values["status_validacao"] = existing.get("status_validacao", "aprovada")
+    if analise_fraude["is_fraude"]:
+        values["status_validacao"] = "pendente"
 
     success = update_transacao_record(transacao_id, values)
     return get_transacao_by_id(transacao_id) if success else None

@@ -9,6 +9,14 @@ from dotenv import load_dotenv
 from mysql.connector import Error
 
 from app.db.connection import get_connection
+from app.domain.fraude import avaliar_fraude
+from app.domain.ml import prever_anomalia
+from app.repositories.transacao_repository import (
+    get_estatisticas_conta,
+    get_frequencia_recente,
+)
+from app.repositories.viagem_repository import get_viagem_ativa_por_conta
+from app.schemas import TransacaoCreate
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
@@ -73,8 +81,9 @@ INSERT INTO transacoes (
     estabelecimento,
     tentativas,
     ip_origem,
-    is_fraude
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    is_fraude,
+    status_validacao
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -116,6 +125,22 @@ def normalize_nullable_float(value: Any):
     return float(value)
 
 
+def _transacao_em_viagem_legitima(conta: str, pais: str, estado: str | None, data: str) -> bool:
+    viagens_ativas = get_viagem_ativa_por_conta(conta, data)
+    pais = str(pais or "").strip().lower()
+    estado = str(estado or "").strip().lower()
+
+    for viagem in viagens_ativas:
+        pais_destino = str(viagem.get("pais_destino", "")).strip().lower()
+        estado_destino = str(viagem.get("estado_destino", "")).strip().lower()
+        if pais and pais == pais_destino:
+            return True
+        if estado and estado == estado_destino:
+            return True
+
+    return False
+
+
 def create_table_if_not_exists() -> None:
     conn = get_connection()
     cursor = conn.cursor()
@@ -144,7 +169,7 @@ def table_is_empty() -> bool:
     return get_total_rows() == 0
 
 
-def read_json_records() -> list[tuple]:
+def read_json_records() -> list[dict[str, Any]]:
     if not JSON_FILE_PATH.exists():
         raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
@@ -158,50 +183,124 @@ def read_json_records() -> list[tuple]:
     else:
         raise ValueError("Formato de JSON inválido. Esperado: lista de objetos.")
 
-    rows: list[tuple] = []
-    for item in items:
-        rows.append(
-            (
-                int(item["id"]),
-                float(item["valor"]),
-                normalize_date_string(item["data"]),
-                normalize_time_string(item["hora"]),
-                str(item["dia_semana"]),
-                str(item["categoria"]),
-                str(item["conta"]),
-                str(item["cidade"]),
-                str(item["estado"]),
-                str(item["pais"]),
-                normalize_nullable_float(item.get("latitude")),
-                normalize_nullable_float(item.get("longitude")),
-                str(item["tipo_transacao"]),
-                str(item["dispositivo"]),
-                str(item["estabelecimento"]),
-                int(item["tentativas"]),
-                str(item["ip_origem"]),
-                normalize_bool(item["is_fraude"]),
-            )
-        )
-
-    return rows
+    return items
 
 
 def import_json_if_table_is_empty() -> None:
     if not table_is_empty():
         return
 
-    rows = read_json_records()
-    if not rows:
+    items = read_json_records()
+    if not items:
         return
 
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.executemany(INSERT_IMPORT_SQL, rows)
+        for item in items:
+            payload = TransacaoCreate(
+                valor=float(item["valor"]),
+                data=normalize_date_string(item["data"]),
+                hora=normalize_time_string(item["hora"]),
+                dia_semana=str(item["dia_semana"]),
+                categoria=str(item["categoria"]),
+                conta=str(item["conta"]),
+                cidade=str(item["cidade"]),
+                estado=item.get("estado"),
+                pais=str(item["pais"]),
+                latitude=normalize_nullable_float(item.get("latitude")),
+                longitude=normalize_nullable_float(item.get("longitude")),
+                tipo_transacao=str(item["tipo_transacao"]),
+                dispositivo=str(item["dispositivo"]),
+                estabelecimento=str(item["estabelecimento"]),
+                tentativas=int(item["tentativas"]),
+                ip_origem=str(item["ip_origem"]),
+            )
+
+            media_hist = get_estatisticas_conta(payload.conta)
+            freq = get_frequencia_recente(payload.conta, payload.data, normalize_time_string(item["hora"]))
+            em_viagem_legitima = _transacao_em_viagem_legitima(payload.conta, payload.pais, payload.estado, payload.data)
+            resultado_ia = prever_anomalia(payload.model_dump())
+            analise_fraude = avaliar_fraude(
+                payload,
+                media_historica=media_hist,
+                frequencia_recente=freq,
+                em_viagem=em_viagem_legitima,
+                resultado_ml=resultado_ia,
+            )
+
+            status_validacao = "pendente" if analise_fraude["is_fraude"] else "aprovada"
+            cursor.execute(
+                INSERT_IMPORT_SQL,
+                (
+                    int(item["id"]),
+                    float(item["valor"]),
+                    normalize_date_string(item["data"]),
+                    normalize_time_string(item["hora"]),
+                    str(item["dia_semana"]),
+                    str(item["categoria"]),
+                    str(item["conta"]),
+                    str(item["cidade"]),
+                    item.get("estado"),
+                    str(item["pais"]),
+                    normalize_nullable_float(item.get("latitude")),
+                    normalize_nullable_float(item.get("longitude")),
+                    str(item["tipo_transacao"]),
+                    str(item["dispositivo"]),
+                    str(item["estabelecimento"]),
+                    int(item["tentativas"]),
+                    str(item["ip_origem"]),
+                    1 if analise_fraude["is_fraude"] else 0,
+                    status_validacao,
+                ),
+            )
+
         conn.commit()
     finally:
         cursor.close()
         conn.close()
+
+
+def _atualizar_is_fraude_transacao(transacao_id: int, is_fraude: bool, status_validacao: str) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE transacoes SET is_fraude = %s, status_validacao = %s WHERE id = %s",
+            (1 if is_fraude else 0, status_validacao, transacao_id),
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def recalcular_fraude_existente() -> None:
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT * FROM transacoes WHERE status_validacao IN ('aprovada','pendente') ORDER BY id"
+        )
+        rows = cursor.fetchall() or []
+    finally:
+        cursor.close()
+        conn.close()
+
+    for row in rows:
+        media_hist = get_estatisticas_conta(row["conta"])
+        freq = get_frequencia_recente(row["conta"], str(row["data"]), str(row["hora"]))
+        em_viagem_legitima = _transacao_em_viagem_legitima(row["conta"], row["pais"], row.get("estado"), str(row["data"]))
+        resultado_ia = prever_anomalia(row)
+        analise_fraude = avaliar_fraude(
+            row,
+            media_historica=media_hist,
+            frequencia_recente=freq,
+            em_viagem=em_viagem_legitima,
+            resultado_ml=resultado_ia,
+        )
+        status_validacao = "pendente" if analise_fraude["is_fraude"] else "aprovada"
+        _atualizar_is_fraude_transacao(row["id"], analise_fraude["is_fraude"], status_validacao)
 
 
 def adjust_auto_increment() -> None:
@@ -223,8 +322,6 @@ def init_database() -> None:
     try:
         load_environment()
         create_table_if_not_exists()
-        import_json_if_table_is_empty()
-        adjust_auto_increment()
     except Error as exc:
         raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
     except Exception as exc:
