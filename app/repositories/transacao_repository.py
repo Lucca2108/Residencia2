@@ -251,6 +251,48 @@ def update_transacao_record(transacao_id: int, values: dict[str, Any]) -> bool:
         conn.close()
 
 
+def bulk_update_fraude_status(updates: list[dict[str, Any]]) -> int:
+    """
+    Atualiza múltiplas transações em uma única operação.
+    updates: lista de dicts com 'id', 'is_fraude' e 'status_validacao'
+    Retorna: número de linhas atualizadas
+    """
+    if not updates:
+        return 0
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Usa CASE para fazer bulk update eficiente
+        ids = [u["id"] for u in updates]
+        placeholders = ",".join(["%s"] * len(ids))
+        
+        # Constrói queries CASE para is_fraude e status_validacao
+        is_fraude_cases = " ".join([
+            f"WHEN {u['id']} THEN {1 if u['is_fraude'] else 0}"
+            for u in updates
+        ])
+        status_cases = " ".join([
+            f"WHEN {u['id']} THEN '{u['status_validacao']}'"
+            for u in updates
+        ])
+        
+        sql = f"""
+        UPDATE transacoes
+        SET 
+            is_fraude = CASE id {is_fraude_cases} END,
+            status_validacao = CASE id {status_cases} END
+        WHERE id IN ({placeholders})
+        """
+        
+        cursor.execute(sql, ids)
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def delete_transacao(transacao_id: int) -> bool:
     conn = get_connection()
     cursor = conn.cursor()

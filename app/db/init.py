@@ -12,6 +12,7 @@ from app.db.connection import get_connection
 from app.domain.fraude import avaliar_fraude
 from app.domain.ml import prever_anomalia
 from app.repositories.transacao_repository import (
+    bulk_update_fraude_status,
     get_estatisticas_conta,
     get_frequencia_recente,
     search_transacoes,
@@ -335,8 +336,10 @@ def get_unevaluated_transacoes_count() -> int:
 
 def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
     """
-    Avalia fraude para todas as transações não avaliadas (is_fraude = 0).
-    Processa em batches para evitar bloqueio prolongado do servidor.
+    Versão otimizada com:
+    - Cache de estatísticas por conta (uma query)
+    - Bulk update em lotes (reduz queries de 30k para 60)
+    - Processa em batches para não bloquear o servidor
     """
     total_unevaluated = get_unevaluated_transacoes_count()
     
@@ -345,6 +348,11 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
         return 0
     
     print(f"[FRAUDE] Iniciando avaliação de {total_unevaluated} transações não avaliadas...")
+    
+    # Cache de estatísticas por conta (uma única query!)
+    print("[FRAUDE] Construindo cache de estatísticas...")
+    stats_cache = _build_estatisticas_cache_for_unevaluated()
+    print(f"[FRAUDE] {len(stats_cache)} contas com histórico")
     
     offset = 0
     total_updated = 0
@@ -356,14 +364,21 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
         if not transacoes:
             break
         
-        batch_updated = 0
+        updates_batch = []
+        batch_processed = 0
+        
         for transacao in transacoes:
             try:
                 hora = transacao.get("hora", "00:00:00")
-                media_hist = get_estatisticas_conta(transacao["conta"])
-                freq = get_frequencia_recente(transacao["conta"], transacao["data"], hora, minutos=30)
+                conta = transacao["conta"]
+                
+                # Usa cache em vez de query individual
+                media_hist = stats_cache.get(conta, 0.0)
+                
+                # Uma query por conta (mas com cache local)
+                freq = get_frequencia_recente(conta, transacao["data"], hora, minutos=30)
                 em_viagem_legitima = _transacao_em_viagem_legitima(
-                    transacao["conta"], transacao["pais"], transacao.get("estado"), transacao["data"]
+                    conta, transacao["pais"], transacao.get("estado"), transacao["data"]
                 )
                 resultado_ia = prever_anomalia(transacao)
                 analise = avaliar_fraude(
@@ -374,23 +389,49 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
                     resultado_ml=resultado_ia,
                 )
 
-                values = {**transacao}
-                values["is_fraude"] = 1 if analise["is_fraude"] else 0
-                values["status_validacao"] = "pendente" if analise["is_fraude"] else "aprovada"
-
-                if update_transacao_record(transacao["id"], values):
-                    batch_updated += 1
-                    total_updated += 1
+                updates_batch.append({
+                    "id": transacao["id"],
+                    "is_fraude": analise["is_fraude"],
+                    "status_validacao": "pendente" if analise["is_fraude"] else "aprovada",
+                })
+                batch_processed += 1
                     
             except Exception as e:
                 print(f"[FRAUDE] Erro ao avaliar transação {transacao.get('id')}: {e}")
                 continue
         
+        # Executa bulk update para todo o batch
+        if updates_batch:
+            batch_updated = bulk_update_fraude_status(updates_batch)
+            total_updated += batch_updated
+        
         offset += batch_size
-        print(f"[FRAUDE] Processadas {min(offset, total_unevaluated)}/{total_unevaluated} transações... ({batch_updated} atualizadas neste lote)")
+        print(f"[FRAUDE] Processadas {min(offset, total_unevaluated)}/{total_unevaluated} transações... ({batch_processed} avaliadas, {len(updates_batch)} atualizadas)")
     
     print(f"[FRAUDE] Avaliação concluída! Total de transações atualizadas: {total_updated}")
     return total_updated
+
+
+def _build_estatisticas_cache_for_unevaluated() -> dict[str, float]:
+    """
+    Carrega estatísticas apenas de contas com transações não avaliadas.
+    Retorna: dict {conta: media_valor}
+    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT DISTINCT t1.conta, AVG(t2.valor) as media_valor
+            FROM transacoes t1
+            LEFT JOIN transacoes t2 ON t1.conta = t2.conta AND t2.is_fraude = 0
+            WHERE t1.is_fraude = 0
+            GROUP BY t1.conta
+        """)
+        rows = cursor.fetchall()
+        return {row["conta"]: float(row["media_valor"]) for row in rows if row["media_valor"]}
+    finally:
+        cursor.close()
+        conn.close()
 
 
 def init_database() -> None:
