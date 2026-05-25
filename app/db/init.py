@@ -14,13 +14,15 @@ from app.domain.ml import prever_anomalia
 from app.repositories.transacao_repository import (
     get_estatisticas_conta,
     get_frequencia_recente,
+    search_transacoes,
+    update_transacao_record,
 )
 from app.repositories.viagem_repository import get_viagem_ativa_por_conta
 from app.schemas import TransacaoCreate
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
-JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
+JSON_FILE_PATH = DATA_DIR / "transacoes_treino_sem_fraude.json"
 ENV_FILE_PATH = BASE_DIR / ".env"
 
 
@@ -318,10 +320,85 @@ def adjust_auto_increment() -> None:
         conn.close()
 
 
+def get_unevaluated_transacoes_count() -> int:
+    """Conta transações que ainda não foram avaliadas (is_fraude = 0)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM transacoes WHERE is_fraude = 0")
+        count = cursor.fetchone()[0]
+        return int(count)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
+    """
+    Avalia fraude para todas as transações não avaliadas (is_fraude = 0).
+    Processa em batches para evitar bloqueio prolongado do servidor.
+    """
+    total_unevaluated = get_unevaluated_transacoes_count()
+    
+    if total_unevaluated == 0:
+        print("[FRAUDE] Nenhuma transação não avaliada encontrada.")
+        return 0
+    
+    print(f"[FRAUDE] Iniciando avaliação de {total_unevaluated} transações não avaliadas...")
+    
+    offset = 0
+    total_updated = 0
+    
+    while offset < total_unevaluated:
+        # Busca apenas transações com is_fraude = 0 (não avaliadas)
+        transacoes = search_transacoes(is_fraude=0, limit=batch_size, offset=offset)
+        
+        if not transacoes:
+            break
+        
+        batch_updated = 0
+        for transacao in transacoes:
+            try:
+                hora = transacao.get("hora", "00:00:00")
+                media_hist = get_estatisticas_conta(transacao["conta"])
+                freq = get_frequencia_recente(transacao["conta"], transacao["data"], hora, minutos=30)
+                em_viagem_legitima = _transacao_em_viagem_legitima(
+                    transacao["conta"], transacao["pais"], transacao.get("estado"), transacao["data"]
+                )
+                resultado_ia = prever_anomalia(transacao)
+                analise = avaliar_fraude(
+                    transacao,
+                    media_historica=media_hist,
+                    frequencia_recente=freq,
+                    em_viagem=em_viagem_legitima,
+                    resultado_ml=resultado_ia,
+                )
+
+                values = {**transacao}
+                values["is_fraude"] = 1 if analise["is_fraude"] else 0
+                values["status_validacao"] = "pendente" if analise["is_fraude"] else "aprovada"
+
+                if update_transacao_record(transacao["id"], values):
+                    batch_updated += 1
+                    total_updated += 1
+                    
+            except Exception as e:
+                print(f"[FRAUDE] Erro ao avaliar transação {transacao.get('id')}: {e}")
+                continue
+        
+        offset += batch_size
+        print(f"[FRAUDE] Processadas {min(offset, total_unevaluated)}/{total_unevaluated} transações... ({batch_updated} atualizadas neste lote)")
+    
+    print(f"[FRAUDE] Avaliação concluída! Total de transações atualizadas: {total_updated}")
+    return total_updated
+
+
 def init_database() -> None:
     try:
         load_environment()
         create_table_if_not_exists()
+        print("[APP] Verificando se há transações não avaliadas...")
+        evaluate_fraud_for_unevaluated()
     except Error as exc:
         raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
     except Exception as exc:
