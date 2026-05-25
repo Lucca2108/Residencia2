@@ -78,10 +78,30 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
     ip_origem = _normalizar_texto(dados.get("ip_origem"))
     horario = _parse_hora(dados.get("hora"))
 
-    if media_historica > 0 and valor > (media_historica * 2.5):
-        score += 3
-        motivos.append(
-            f"valor 2.5x maior que a média histórica (Média: R$ {media_historica:.2f})")
+    if media_historica > 0:
+        if valor > media_historica * 2.5:
+            score += 4
+            motivos.append(
+                f"valor 2.5x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.8:
+            score += 3
+            motivos.append(
+                f"valor 1.8x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.5:
+            score += 2
+            motivos.append(
+                f"valor 1.5x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.2:
+            score += 1
+            motivos.append(
+                f"valor 1.2x maior que a média histórica (Média: R$ {media_historica:.2f})")
+    else:
+        if valor >= 5000:
+            score += 3
+            motivos.append("valor muito alto")
+        elif valor >= 2000:
+            score += 2
+            motivos.append("valor alto")
 
     if frequencia_recente >= 3:
         score += 3
@@ -97,17 +117,12 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
             motivos.append("transação fora do país esperado")
 
     if resultado_ml.get("is_anomalia_ml"):
-        score += 4
-        score_decisao = resultado_ml.get("score_ml", 0)
-        motivos.append(
-            f"anomalia comportamental detectada por IA (score_ml: {score_decisao:.2f})")
-
-    if valor >= 5000:
+        ml_score = float(resultado_ml.get("score_ml", 0.0))
         score += 3
-        motivos.append("valor muito alto")
-    elif valor >= 2000:
-        score += 2
-        motivos.append("valor alto")
+        if ml_score >= 0.8:
+            score += 1
+        motivos.append(
+            f"anomalia comportamental detectada por IA (score_ml: {ml_score:.2f})")
 
     if horario is not None and (
         time(0, 0, 0) <= horario <= time(5, 0, 0)
@@ -147,9 +162,9 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
         score += 2
         motivos.append("IP de origem não identificado")
 
-    if score >= 6:
+    if score >= 7:
         classificacao = "alto"
-    elif score >= 3:
+    elif score >= 4:
         classificacao = "medio"
     else:
         classificacao = "baixo"
@@ -157,6 +172,6 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
     return {
         "score": score,
         "classificacao_risco": classificacao,
-        "is_fraude": score >= 3,
+        "is_fraude": score >= 4,
         "motivos": motivos,
     }

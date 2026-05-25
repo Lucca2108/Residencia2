@@ -20,7 +20,7 @@ def main():
     print("[DASHBOARD] Abra http://localhost:8501 no navegador.\n")
     
     subprocess.run(
-        ["python", "-m", "streamlit", "run", "dashboard/app.py"],
+        [sys.executable, "-m", "streamlit", "run", "dashboard/dashboard_app.py"],
         cwd=PROJECT_ROOT
     )
 
