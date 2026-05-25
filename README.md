@@ -84,6 +84,13 @@ Permite inserir novas transações na base de dados.
 
 Ao cadastrar uma transação, o sistema executa automaticamente uma avaliação de risco para definir se ela deve ser marcada como potencial fraude.
 
+As transações recém-criadas recebem o estado `status_validacao = 'nao_avaliada'` até que a análise seja concluída. Após a verificação automática, o sistema atualiza o estado para:
+
+- `pendente` — transação suspeita, aguardando validação do cliente;
+- `aprovada` — transação avaliada como não fraude;
+- `confirmada_pelo_cliente` — cliente confirmou que a transação é legítima;
+- `fraude_confirmada` — cliente confirmou que a transação é fraude.
+
 ### 5. Atualização de transações
 Permite atualizar uma transação existente.
 

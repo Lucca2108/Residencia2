@@ -44,6 +44,7 @@ def search_transacoes(
     dispositivo: str | None = None,
     estabelecimento: str | None = None,
     is_fraude: int | None = None,
+    status_validacao: str | None = None,
     data_inicial: str | None = None,
     data_final: str | None = None,
     valor_min: float | None = None,
@@ -90,6 +91,10 @@ def search_transacoes(
     if is_fraude is not None:
         conditions.append("is_fraude = %s")
         params.append(is_fraude)
+
+    if status_validacao is not None:
+        conditions.append("status_validacao = %s")
+        params.append(status_validacao)
 
     if data_inicial:
         conditions.append("data >= %s")

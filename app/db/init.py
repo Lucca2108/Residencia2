@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS transacoes (
     tentativas INT NOT NULL DEFAULT 1,
     ip_origem VARCHAR(45) NOT NULL,
     is_fraude BOOLEAN NOT NULL DEFAULT FALSE,
-    status_validacao VARCHAR(50) DEFAULT 'aprovada',
+    status_validacao VARCHAR(50) DEFAULT 'nao_avaliada',
     PRIMARY KEY (id)
 )
 """
@@ -150,6 +150,37 @@ def create_table_if_not_exists() -> None:
     try:
         cursor.execute(CREATE_TABLE_TRANSACOES_SQL)
         cursor.execute(CREATE_TABLE_VIAGENS_SQL)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def ensure_status_validacao_default() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "ALTER TABLE transacoes MODIFY COLUMN status_validacao VARCHAR(50) DEFAULT 'nao_avaliada'"
+        )
+        conn.commit()
+    except Error:
+        # Se a tabela ou a coluna ainda não existir, ignoramos. O create_table_if_not_exists
+        # já garante a criação de um esquema válido para novas tabelas.
+        pass
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def normalize_existing_status_validacao() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE transacoes SET status_validacao = 'nao_avaliada' "
+            "WHERE status_validacao IS NULL OR status_validacao = ''"
+        )
         conn.commit()
     finally:
         cursor.close()
@@ -322,11 +353,11 @@ def adjust_auto_increment() -> None:
 
 
 def get_unevaluated_transacoes_count() -> int:
-    """Conta transações que ainda não foram avaliadas (is_fraude = 0)"""
+    """Conta transações que ainda não foram avaliadas (status_validacao = 'nao_avaliada')"""
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT COUNT(*) FROM transacoes WHERE is_fraude = 0")
+        cursor.execute("SELECT COUNT(*) FROM transacoes WHERE status_validacao = 'nao_avaliada'")
         count = cursor.fetchone()[0]
         return int(count)
     finally:
@@ -358,8 +389,8 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
     total_updated = 0
     
     while offset < total_unevaluated:
-        # Busca apenas transações com is_fraude = 0 (não avaliadas)
-        transacoes = search_transacoes(is_fraude=0, limit=batch_size, offset=offset)
+        # Busca apenas transações com status_validacao = 'nao_avaliada'
+        transacoes = search_transacoes(status_validacao="nao_avaliada", limit=batch_size, offset=offset)
         
         if not transacoes:
             break
@@ -438,6 +469,8 @@ def init_database() -> None:
     try:
         load_environment()
         create_table_if_not_exists()
+        ensure_status_validacao_default()
+        normalize_existing_status_validacao()
         print("[APP] Verificando se há transações não avaliadas...")
         evaluate_fraud_for_unevaluated()
     except Error as exc:

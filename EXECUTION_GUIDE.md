@@ -96,7 +96,7 @@ Quando você executa `python scripts/run_api.py`, automaticamente:
 
 1. ✅ Cria as tabelas do banco (se não existirem)
 2. ✅ Importa dados JSON (se tabela estiver vazia)
-3. ✅ Avalia fraude para transações não avaliadas
+3. ✅ Avalia fraude apenas para transações com `status_validacao = 'nao_avaliada'`
 4. ✅ Inicia a API
 
 Você não precisa executar nada manualmente!
