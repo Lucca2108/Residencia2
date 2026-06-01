@@ -15,6 +15,7 @@ from app.schemas import AnaliseTransacaoRequest
 from app.services.transacao_service import get_dashboard_summary
 
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[APP] Iniciando aplicação...")

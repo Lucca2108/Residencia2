@@ -8,6 +8,7 @@ from app.services.viagem_service import create_viagem, get_viagens_por_conta
 router = APIRouter()
 
 
+
 @router.post(
     "/viagens",
     response_model=ViagemResponse,

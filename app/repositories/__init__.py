@@ -14,6 +14,7 @@ from app.repositories.viagem_repository import (
     get_viagens_por_conta,
 )
 
+
 __all__ = [
     "create_transacao_record",
     "delete_transacao",

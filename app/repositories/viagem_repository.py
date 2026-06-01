@@ -5,6 +5,7 @@ from typing import Any
 from app.db.connection import get_connection
 
 
+
 def create_viagem_record(values: dict[str, Any]) -> int:
     conn = get_connection()
     cursor = conn.cursor()

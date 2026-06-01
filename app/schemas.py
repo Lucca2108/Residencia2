@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+
 class TransacaoBase(BaseModel):
     valor: float = Field(..., description="Valor da transação.")
     data: str = Field(

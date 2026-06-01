@@ -6,6 +6,7 @@ from app.db.connection import get_connection
 from app.utils.normalization import normalize_row
 
 
+
 def list_transacoes(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)

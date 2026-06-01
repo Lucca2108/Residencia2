@@ -255,3 +255,5 @@ def build_dashboard() -> None:
             st.dataframe(df_pendentes[colunas_exibicao], use_container_width=True)
         else:
             st.success("Nenhuma transação pendente de validação no momento!")
+    else:
+        st.info("A coluna status_validacao ainda não existe na base local.")
