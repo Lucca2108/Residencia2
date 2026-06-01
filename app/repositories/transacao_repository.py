@@ -154,6 +154,60 @@ def get_transacao_by_id(transacao_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+def find_transacao_por_valores(values: dict[str, Any]) -> dict[str, Any] | None:
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = """
+        SELECT *
+        FROM transacoes
+        WHERE valor = %s
+          AND data = %s
+          AND hora = %s
+          AND dia_semana = %s
+          AND categoria = %s
+          AND conta = %s
+          AND cidade = %s
+          AND estado <=> %s
+          AND pais = %s
+          AND latitude <=> %s
+          AND longitude <=> %s
+          AND tipo_transacao = %s
+          AND dispositivo = %s
+          AND estabelecimento = %s
+          AND tentativas = %s
+          AND ip_origem = %s
+          AND is_fraude = %s
+        ORDER BY id DESC
+        LIMIT 1
+        """
+        params = (
+            values["valor"],
+            values["data"],
+            values["hora"],
+            values["dia_semana"],
+            values["categoria"],
+            values["conta"],
+            values["cidade"],
+            values.get("estado"),
+            values["pais"],
+            values.get("latitude"),
+            values.get("longitude"),
+            values["tipo_transacao"],
+            values["dispositivo"],
+            values["estabelecimento"],
+            values["tentativas"],
+            values["ip_origem"],
+            1 if values["is_fraude"] else 0,
+        )
+        cursor.execute(sql, params)
+        row = cursor.fetchone()
+        return normalize_row(row) if row else None
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def search_transacoes(
     categoria: str | None = None,
     conta: str | None = None,

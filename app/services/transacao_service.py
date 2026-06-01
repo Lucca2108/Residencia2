@@ -8,6 +8,7 @@ from app.repositories.transacao_repository import (
     get_estatisticas_conta,
     get_frequencia_recente,
     get_dashboard_summary as _get_dashboard_summary,
+    find_transacao_por_valores,
     get_transacao_by_id,
     list_transacoes as _list_transacoes,
     search_transacoes as _search_transacoes,
@@ -66,6 +67,10 @@ def create_transacao(payload: TransacaoCreate):
     values = payload.model_dump()
     values["hora"] = hora_formatada
     values["is_fraude"] = 1 if analise_fraude["is_fraude"] else 0
+
+    existente = find_transacao_por_valores(values)
+    if existente:
+        return existente
 
     if values["is_fraude"] == 1:
         print("⚠️ [ALERTA ANTIFRAUDE] Transação suspeita detectada!")
