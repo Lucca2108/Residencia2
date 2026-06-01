@@ -66,7 +66,7 @@ def build_dashboard() -> None:
             barmode="group",
             title="Transações por Dispositivo (Normal x Fraude)",
             labels={"dispositivo": "Dispositivo", "is_fraude": "É Fraude?"},
-            color_discrete_map={0: "#00cc96", 1: "#ef553b"},
+            color_discrete_map={0: "#465eff", 1: "#ef553b"},
         )
         st.plotly_chart(fig_disp, use_container_width=True)
 
@@ -93,7 +93,7 @@ def build_dashboard() -> None:
             "status_fraude": "Classificação",
             "tentativas": "Nº de Tentativas",
         },
-        color_discrete_map={"Normal": "#636efa", "Fraude": "#ef553b"},
+        color_discrete_map={"Normal": "#465eff", "Fraude": "#ef553b"},
         opacity=0.7,
     )
     st.plotly_chart(fig_ml, use_container_width=True)
