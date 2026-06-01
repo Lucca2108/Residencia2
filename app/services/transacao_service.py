@@ -7,6 +7,8 @@ from app.repositories.transacao_repository import (
     delete_transacao as _delete_transacao,
     get_estatisticas_conta,
     get_frequencia_recente,
+    get_dashboard_summary as _get_dashboard_summary,
+    find_transacao_por_valores,
     get_transacao_by_id,
     list_transacoes as _list_transacoes,
     search_transacoes as _search_transacoes,
@@ -31,6 +33,10 @@ def get_transacao_by_id_service(transacao_id: int):
 
 def search_transacoes(**filters):
     return _search_transacoes(**filters)
+
+
+def get_dashboard_summary():
+    return _get_dashboard_summary()
 
 
 def create_transacao(payload: TransacaoCreate):
@@ -62,9 +68,12 @@ def create_transacao(payload: TransacaoCreate):
     values = payload.model_dump()
     values["hora"] = hora_formatada
     values["is_fraude"] = 1 if analise_fraude["is_fraude"] else 0
-    values["status_validacao"] = "pendente" if values["is_fraude"] == 1 else "aprovada"
 
-    if values["status_validacao"] == "pendente":
+    existente = find_transacao_por_valores(values)
+    if existente:
+        return existente
+
+    if values["is_fraude"] == 1:
         print("⚠️ [ALERTA ANTIFRAUDE] Transação suspeita detectada!")
         print(f"📱 Disparando Push Notification/SMS para o cliente da conta {payload.conta}...")
         print(f"Motivos: {', '.join(analise_fraude['motivos'])}")
@@ -82,7 +91,6 @@ def update_transacao(transacao_id: int, payload: TransacaoUpdate):
     values = payload.model_dump()
     values["hora"] = _format_payload_hora(payload.hora)
     values["is_fraude"] = 1 if analise_fraude["is_fraude"] else 0
-    values["status_validacao"] = existing.get("status_validacao", "aprovada")
 
     success = update_transacao_record(transacao_id, values)
     return get_transacao_by_id(transacao_id) if success else None
@@ -97,9 +105,8 @@ def validar_transacao_cliente(transacao_id: int, confirmada: bool):
     if not transacao:
         return None
 
-    novo_status = "confirmada_pelo_cliente" if confirmada else "fraude_confirmada"
     is_fraude_atualizado = 0 if confirmada else 1
-    values = {**transacao, "is_fraude": is_fraude_atualizado, "status_validacao": novo_status}
+    values = {**transacao, "is_fraude": is_fraude_atualizado}
 
     update_transacao_record(transacao_id, values)
     return get_transacao_by_id(transacao_id)

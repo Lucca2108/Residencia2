@@ -22,11 +22,186 @@ def list_transacoes(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         conn.close()
 
 
+def get_dashboard_summary() -> dict[str, Any]:
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT
+                COUNT(*) AS total_transacoes,
+                COALESCE(SUM(valor), 0) AS valor_total,
+                COALESCE(MAX(valor), 0) AS maior_transacao,
+                COALESCE(SUM(CASE WHEN is_fraude = 1 THEN 1 ELSE 0 END), 0) AS total_fraudes,
+                COALESCE(SUM(CASE WHEN is_fraude = 0 THEN 1 ELSE 0 END), 0) AS total_normais
+            FROM transacoes
+            """
+        )
+        totals = cursor.fetchone() or {}
+
+        cursor.execute(
+            """
+            SELECT categoria, COALESCE(SUM(valor), 0) AS valor_total
+            FROM transacoes
+            GROUP BY categoria
+            ORDER BY valor_total DESC
+            LIMIT 6
+            """
+        )
+        categorias = cursor.fetchall()
+
+        cursor.execute(
+            """
+            SELECT dispositivo, COUNT(*) AS total
+            FROM transacoes
+            GROUP BY dispositivo
+            ORDER BY total DESC
+            """
+        )
+        dispositivos = cursor.fetchall()
+
+        cursor.execute(
+            """
+            SELECT tipo_transacao, COUNT(*) AS total
+            FROM transacoes
+            GROUP BY tipo_transacao
+            ORDER BY total DESC
+            """
+        )
+        tipos = cursor.fetchall()
+
+        cursor.execute(
+            """
+            SELECT pais, COUNT(*) AS total
+            FROM transacoes
+            GROUP BY pais
+            ORDER BY total DESC
+            """
+        )
+        paises = cursor.fetchall()
+
+        cursor.execute(
+            """
+            SELECT LPAD(HOUR(hora), 2, '0') AS hora_label, COALESCE(SUM(valor), 0) AS valor_total
+            FROM transacoes
+            GROUP BY LPAD(HOUR(hora), 2, '0')
+            ORDER BY hora_label
+            """
+        )
+        horas = cursor.fetchall()
+
+        return {
+            "totais": {
+                "total_transacoes": int(totals.get("total_transacoes") or 0),
+                "valor_total": float(totals.get("valor_total") or 0),
+                "maior_transacao": float(totals.get("maior_transacao") or 0),
+                "total_fraudes": int(totals.get("total_fraudes") or 0),
+                "total_normais": int(totals.get("total_normais") or 0),
+            },
+            "categorias": [
+                {
+                    "categoria": row["categoria"],
+                    "valor_total": float(row["valor_total"] or 0),
+                }
+                for row in categorias
+            ],
+            "dispositivos": [
+                {
+                    "dispositivo": row["dispositivo"],
+                    "total": int(row["total"] or 0),
+                }
+                for row in dispositivos
+            ],
+            "tipos_transacao": [
+                {
+                    "tipo_transacao": row["tipo_transacao"],
+                    "total": int(row["total"] or 0),
+                }
+                for row in tipos
+            ],
+            "paises": [
+                {
+                    "pais": row["pais"],
+                    "total": int(row["total"] or 0),
+                }
+                for row in paises
+            ],
+            "fraudes": [
+                {"label": "Normais", "valor": int(totals.get("total_normais") or 0)},
+                {"label": "Fraudes", "valor": int(totals.get("total_fraudes") or 0)},
+            ],
+            "horas": [
+                {
+                    "hora_label": row["hora_label"],
+                    "valor_total": float(row["valor_total"] or 0),
+                }
+                for row in horas
+            ],
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def get_transacao_by_id(transacao_id: int) -> dict[str, Any] | None:
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("SELECT * FROM transacoes WHERE id = %s", (transacao_id,))
+        row = cursor.fetchone()
+        return normalize_row(row) if row else None
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def find_transacao_por_valores(values: dict[str, Any]) -> dict[str, Any] | None:
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        sql = """
+        SELECT *
+        FROM transacoes
+        WHERE valor = %s
+          AND data = %s
+          AND hora = %s
+          AND dia_semana = %s
+          AND categoria = %s
+          AND conta = %s
+          AND cidade = %s
+          AND estado <=> %s
+          AND pais = %s
+          AND latitude <=> %s
+          AND longitude <=> %s
+          AND tipo_transacao = %s
+          AND dispositivo = %s
+          AND estabelecimento = %s
+          AND tentativas = %s
+          AND ip_origem = %s
+          AND is_fraude = %s
+        ORDER BY id DESC
+        LIMIT 1
+        """
+        params = (
+            values["valor"],
+            values["data"],
+            values["hora"],
+            values["dia_semana"],
+            values["categoria"],
+            values["conta"],
+            values["cidade"],
+            values.get("estado"),
+            values["pais"],
+            values.get("latitude"),
+            values.get("longitude"),
+            values["tipo_transacao"],
+            values["dispositivo"],
+            values["estabelecimento"],
+            values["tentativas"],
+            values["ip_origem"],
+            1 if values["is_fraude"] else 0,
+        )
+        cursor.execute(sql, params)
         row = cursor.fetchone()
         return normalize_row(row) if row else None
     finally:
@@ -164,8 +339,8 @@ def create_transacao_record(values: dict[str, Any]) -> int:
         INSERT INTO transacoes (
             valor, data, hora, dia_semana, categoria, conta, cidade, estado, pais,
             latitude, longitude, tipo_transacao, dispositivo, estabelecimento,
-            tentativas, ip_origem, is_fraude, status_validacao
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            tentativas, ip_origem, is_fraude
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         values_tuple = (
             values["valor"],
@@ -185,7 +360,6 @@ def create_transacao_record(values: dict[str, Any]) -> int:
             values["tentativas"],
             values["ip_origem"],
             1 if values["is_fraude"] else 0,
-            values["status_validacao"],
         )
         cursor.execute(sql, values_tuple)
         conn.commit()
@@ -218,8 +392,7 @@ def update_transacao_record(transacao_id: int, values: dict[str, Any]) -> bool:
             estabelecimento = %s,
             tentativas = %s,
             ip_origem = %s,
-            is_fraude = %s,
-            status_validacao = %s
+            is_fraude = %s
         WHERE id = %s
         """
         values_tuple = (
@@ -240,7 +413,6 @@ def update_transacao_record(transacao_id: int, values: dict[str, Any]) -> bool:
             values["tentativas"],
             values["ip_origem"],
             1 if values["is_fraude"] else 0,
-            values.get("status_validacao", "aprovada"),
             transacao_id,
         )
         cursor.execute(sql, values_tuple)

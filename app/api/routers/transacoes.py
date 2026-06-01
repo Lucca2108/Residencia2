@@ -89,6 +89,7 @@ def buscar_transacao_por_id(transacao_id: int):
     response_model=TransacaoResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Criar transação",
+    description="Cria uma transação persistida no banco e executa a análise antifraude.",
 )
 def criar_transacao(payload: TransacaoCreate):
     return create_transacao(payload)
