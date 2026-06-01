@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS transacoes (
     tentativas INT NOT NULL DEFAULT 1,
     ip_origem VARCHAR(45) NOT NULL,
     is_fraude BOOLEAN NOT NULL DEFAULT FALSE,
-    status_validacao VARCHAR(50) DEFAULT 'aprovada',
     PRIMARY KEY (id)
 )
 """

@@ -123,7 +123,60 @@ O projeto agora está organizado em pacotes para separar claramente as camadas d
 ```
 
 Como iniciar a API no VS Code
-Abra o projeto no VS Code, abra o terminal integrado e ative o ambiente virtual. Antes de iniciar a API, crie o banco bancodobrasil no MySQL, preencha corretamente o arquivo .env.example com DB_HOST, DB_USER, DB_PASSWORD, DB_NAME e DB_PORT. Em geral, será necessário alterar apenas o usuário e a senha. Garanta também que o schema/banco esteja disponível para conexão. Em seguida, execute o comando `uvicorn myapi:app --reload`. Depois disso, acesse `http://127.0.0.1:8000/docs` no navegador para abrir o Swagger e testar os endpoints da API.
+Abra o projeto no VS Code, abra o terminal integrado e ative o ambiente virtual. Antes de iniciar a API, crie o banco `bancodobrasil` no MySQL, preencha corretamente o arquivo `.env` com `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` e `DB_PORT`. Em geral, será necessário alterar apenas o usuário e a senha. Garanta também que o schema/banco esteja disponível para conexão. Em seguida, execute o comando `uvicorn app.main:app --reload`. Depois disso, acesse `http://127.0.0.1:8000/docs` no navegador para abrir o Swagger e testar os endpoints da API.
+
+### Endpoints principais para o frontend
+
+- `GET /` - status básico da API
+- `GET /transacoes` - lista transações com paginação
+- `POST /transacoes` - cria e analisa uma transação
+- `POST /analisar` - analisa uma transação sem persistir
+- `DELETE /transacoes/{id}` - remove uma transação
+
+### Exemplos rápidos
+
+`POST /analisar`
+
+```json
+{
+  "valor": 120.5,
+  "data": "2026-05-18",
+  "hora": "14:30:00",
+  "conta": "12345-6"
+}
+```
+
+`POST /transacoes`
+
+```json
+{
+  "valor": 120.5,
+  "data": "2026-05-18",
+  "hora": "14:30:00",
+  "dia_semana": "segunda-feira",
+  "categoria": "alimentacao",
+  "conta": "12345-6",
+  "cidade": "Fortaleza",
+  "estado": "CE",
+  "pais": "Brasil",
+  "latitude": -3.731862,
+  "longitude": -38.52667,
+  "tipo_transacao": "debito",
+  "dispositivo": "android",
+  "estabelecimento": "Mercado Central",
+  "tentativas": 1,
+  "ip_origem": "192.168.0.10"
+}
+```
+
+### CORS habilitado
+
+A API aceita chamadas do frontend local em:
+
+- `http://localhost:5500`
+- `http://127.0.0.1:5500`
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
 
 Como iniciar o dashboard
 Execute `streamlit run dashboard.py` para abrir o painel de visualização.
