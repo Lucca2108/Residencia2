@@ -72,14 +72,36 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
     valor = _to_float(dados.get("valor"))
     tentativas = _to_int(dados.get("tentativas"))
     tipo_transacao = _normalizar_texto(dados.get("tipo_transacao"))
+    categoria = _normalizar_texto(dados.get("categoria"))
     pais = _normalizar_texto(dados.get("pais"))
     dispositivo = _normalizar_texto(dados.get("dispositivo"))
+    ip_origem = _normalizar_texto(dados.get("ip_origem"))
     horario = _parse_hora(dados.get("hora"))
 
-    if media_historica > 0 and valor > (media_historica * 3):
-        score += 3
-        motivos.append(
-            f"valor 3x maior que a média histórica (Média: R$ {media_historica:.2f})")
+    if media_historica > 0:
+        if valor > media_historica * 2.5:
+            score += 4
+            motivos.append(
+                f"valor 2.5x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.8:
+            score += 3
+            motivos.append(
+                f"valor 1.8x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.5:
+            score += 2
+            motivos.append(
+                f"valor 1.5x maior que a média histórica (Média: R$ {media_historica:.2f})")
+        elif valor > media_historica * 1.2:
+            score += 1
+            motivos.append(
+                f"valor 1.2x maior que a média histórica (Média: R$ {media_historica:.2f})")
+    else:
+        if valor >= 5000:
+            score += 3
+            motivos.append("valor muito alto")
+        elif valor >= 2000:
+            score += 2
+            motivos.append("valor alto")
 
     if frequencia_recente >= 3:
         score += 3
@@ -91,23 +113,30 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
             motivos.append(
                 "transação internacional (justificada por viagem cadastrada)")
         else:
-            score += 2
+            score += 3
             motivos.append("transação fora do país esperado")
 
-    if resultado_ml.get("is_anomalia_ml"):
-        score += 4
-        score_decisao = resultado_ml.get("score_ml", 0)
-        motivos.append(
-            f"anomalia comportamental detectada por IA (score_ml: {score_decisao:.2f})")
+    rf_ml = resultado_ml.get("rf", resultado_ml)
+    iforest_ml = resultado_ml.get("iforest") if isinstance(resultado_ml.get("iforest"), dict) else None
 
-    if valor >= 5000:
+    if rf_ml.get("is_anomalia_ml"):
+        ml_score = float(rf_ml.get("score_ml", 0.0))
         score += 3
-        motivos.append("valor muito alto")
-    elif valor >= 2000:
-        score += 2
-        motivos.append("valor alto")
+        if ml_score >= 0.8:
+            score += 1
+        motivos.append(
+            f"anomalia comportamental detectada por IA (RandomForest score_ml: {ml_score:.2f})")
 
-    if horario is not None and time(0, 0, 0) <= horario <= time(5, 0, 0):
+    if iforest_ml and iforest_ml.get("is_anomalia_ml"):
+        iforest_score = float(iforest_ml.get("score_ml", 0.0))
+        score += 2
+        motivos.append(
+            f"anomalia de padrão detectada por IsolationForest (score_if: {iforest_score:.2f})")
+
+    if horario is not None and (
+        time(0, 0, 0) <= horario <= time(5, 0, 0)
+        or time(22, 0, 0) <= horario <= time(23, 59, 59)
+    ):
         score += 2
         motivos.append("transação em horário de risco")
 
@@ -118,9 +147,17 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
         score += 2
         motivos.append("várias tentativas")
 
-    if tipo_transacao == "pix" and valor >= 2000:
-        score += 2
+    if tipo_transacao == "pix" and valor >= 1500:
+        score += 3
         motivos.append("pix com valor alto")
+
+    if tipo_transacao == "credito" and valor >= 3000:
+        score += 2
+        motivos.append("crédito com valor alto")
+
+    if categoria in {"eletronicos", "veiculos", "lazer", "vestuario"} and valor >= 1500:
+        score += 2
+        motivos.append("categoria de alto risco com valor elevado")
 
     if pais not in {"", "brasil", "br"}:
         score += 2
@@ -130,7 +167,11 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
         score += 2
         motivos.append("dispositivo não identificado")
 
-    if score >= 6:
+    if ip_origem in {"", "unknown", "desconhecido"}:
+        score += 2
+        motivos.append("IP de origem não identificado")
+
+    if score >= 7:
         classificacao = "alto"
     elif score >= 4:
         classificacao = "medio"

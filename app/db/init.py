@@ -9,10 +9,21 @@ from dotenv import load_dotenv
 from mysql.connector import Error
 
 from app.db.connection import get_connection
+from app.domain.fraude import avaliar_fraude
+from app.domain.ml import prever_anomalia
+from app.repositories.transacao_repository import (
+    bulk_update_fraude_status,
+    get_estatisticas_conta,
+    get_frequencia_recente,
+    search_transacoes,
+    update_transacao_record,
+)
+from app.repositories.viagem_repository import get_viagem_ativa_por_conta
+from app.schemas import TransacaoCreate
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
-JSON_FILE_PATH = DATA_DIR / "transacoes_treino.json"
+JSON_FILE_PATH = DATA_DIR / "transacoes_treino_sem_fraude.json"
 ENV_FILE_PATH = BASE_DIR / ".env"
 
 
@@ -36,6 +47,7 @@ CREATE TABLE IF NOT EXISTS transacoes (
     tentativas INT NOT NULL DEFAULT 1,
     ip_origem VARCHAR(45) NOT NULL,
     is_fraude BOOLEAN NOT NULL DEFAULT FALSE,
+    status_validacao VARCHAR(50) DEFAULT 'nao_avaliada',
     PRIMARY KEY (id)
 )
 """
@@ -72,8 +84,9 @@ INSERT INTO transacoes (
     estabelecimento,
     tentativas,
     ip_origem,
-    is_fraude
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    is_fraude,
+    status_validacao
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -115,12 +128,59 @@ def normalize_nullable_float(value: Any):
     return float(value)
 
 
+def _transacao_em_viagem_legitima(conta: str, pais: str, estado: str | None, data: str) -> bool:
+    viagens_ativas = get_viagem_ativa_por_conta(conta, data)
+    pais = str(pais or "").strip().lower()
+    estado = str(estado or "").strip().lower()
+
+    for viagem in viagens_ativas:
+        pais_destino = str(viagem.get("pais_destino", "")).strip().lower()
+        estado_destino = str(viagem.get("estado_destino", "")).strip().lower()
+        if pais and pais == pais_destino:
+            return True
+        if estado and estado == estado_destino:
+            return True
+
+    return False
+
+
 def create_table_if_not_exists() -> None:
     conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(CREATE_TABLE_TRANSACOES_SQL)
         cursor.execute(CREATE_TABLE_VIAGENS_SQL)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def ensure_status_validacao_default() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "ALTER TABLE transacoes MODIFY COLUMN status_validacao VARCHAR(50) DEFAULT 'nao_avaliada'"
+        )
+        conn.commit()
+    except Error:
+        # Se a tabela ou a coluna ainda não existir, ignoramos. O create_table_if_not_exists
+        # já garante a criação de um esquema válido para novas tabelas.
+        pass
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def normalize_existing_status_validacao() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE transacoes SET status_validacao = 'nao_avaliada' "
+            "WHERE status_validacao IS NULL OR status_validacao = ''"
+        )
         conn.commit()
     finally:
         cursor.close()
@@ -143,7 +203,7 @@ def table_is_empty() -> bool:
     return get_total_rows() == 0
 
 
-def read_json_records() -> list[tuple]:
+def read_json_records() -> list[dict[str, Any]]:
     if not JSON_FILE_PATH.exists():
         raise FileNotFoundError(f"Arquivo JSON não encontrado em: {JSON_FILE_PATH}")
 
@@ -157,50 +217,124 @@ def read_json_records() -> list[tuple]:
     else:
         raise ValueError("Formato de JSON inválido. Esperado: lista de objetos.")
 
-    rows: list[tuple] = []
-    for item in items:
-        rows.append(
-            (
-                int(item["id"]),
-                float(item["valor"]),
-                normalize_date_string(item["data"]),
-                normalize_time_string(item["hora"]),
-                str(item["dia_semana"]),
-                str(item["categoria"]),
-                str(item["conta"]),
-                str(item["cidade"]),
-                str(item["estado"]),
-                str(item["pais"]),
-                normalize_nullable_float(item.get("latitude")),
-                normalize_nullable_float(item.get("longitude")),
-                str(item["tipo_transacao"]),
-                str(item["dispositivo"]),
-                str(item["estabelecimento"]),
-                int(item["tentativas"]),
-                str(item["ip_origem"]),
-                normalize_bool(item["is_fraude"]),
-            )
-        )
-
-    return rows
+    return items
 
 
 def import_json_if_table_is_empty() -> None:
     if not table_is_empty():
         return
 
-    rows = read_json_records()
-    if not rows:
+    items = read_json_records()
+    if not items:
         return
 
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.executemany(INSERT_IMPORT_SQL, rows)
+        for item in items:
+            payload = TransacaoCreate(
+                valor=float(item["valor"]),
+                data=normalize_date_string(item["data"]),
+                hora=normalize_time_string(item["hora"]),
+                dia_semana=str(item["dia_semana"]),
+                categoria=str(item["categoria"]),
+                conta=str(item["conta"]),
+                cidade=str(item["cidade"]),
+                estado=item.get("estado"),
+                pais=str(item["pais"]),
+                latitude=normalize_nullable_float(item.get("latitude")),
+                longitude=normalize_nullable_float(item.get("longitude")),
+                tipo_transacao=str(item["tipo_transacao"]),
+                dispositivo=str(item["dispositivo"]),
+                estabelecimento=str(item["estabelecimento"]),
+                tentativas=int(item["tentativas"]),
+                ip_origem=str(item["ip_origem"]),
+            )
+
+            media_hist = get_estatisticas_conta(payload.conta)
+            freq = get_frequencia_recente(payload.conta, payload.data, normalize_time_string(item["hora"]))
+            em_viagem_legitima = _transacao_em_viagem_legitima(payload.conta, payload.pais, payload.estado, payload.data)
+            resultado_ia = prever_anomalia(payload.model_dump())
+            analise_fraude = avaliar_fraude(
+                payload,
+                media_historica=media_hist,
+                frequencia_recente=freq,
+                em_viagem=em_viagem_legitima,
+                resultado_ml=resultado_ia,
+            )
+
+            status_validacao = "pendente" if analise_fraude["is_fraude"] else "aprovada"
+            cursor.execute(
+                INSERT_IMPORT_SQL,
+                (
+                    int(item["id"]),
+                    float(item["valor"]),
+                    normalize_date_string(item["data"]),
+                    normalize_time_string(item["hora"]),
+                    str(item["dia_semana"]),
+                    str(item["categoria"]),
+                    str(item["conta"]),
+                    str(item["cidade"]),
+                    item.get("estado"),
+                    str(item["pais"]),
+                    normalize_nullable_float(item.get("latitude")),
+                    normalize_nullable_float(item.get("longitude")),
+                    str(item["tipo_transacao"]),
+                    str(item["dispositivo"]),
+                    str(item["estabelecimento"]),
+                    int(item["tentativas"]),
+                    str(item["ip_origem"]),
+                    1 if analise_fraude["is_fraude"] else 0,
+                    status_validacao,
+                ),
+            )
+
         conn.commit()
     finally:
         cursor.close()
         conn.close()
+
+
+def _atualizar_is_fraude_transacao(transacao_id: int, is_fraude: bool, status_validacao: str) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE transacoes SET is_fraude = %s, status_validacao = %s WHERE id = %s",
+            (1 if is_fraude else 0, status_validacao, transacao_id),
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def recalcular_fraude_existente() -> None:
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT * FROM transacoes WHERE status_validacao IN ('aprovada','pendente') ORDER BY id"
+        )
+        rows = cursor.fetchall() or []
+    finally:
+        cursor.close()
+        conn.close()
+
+    for row in rows:
+        media_hist = get_estatisticas_conta(row["conta"])
+        freq = get_frequencia_recente(row["conta"], str(row["data"]), str(row["hora"]))
+        em_viagem_legitima = _transacao_em_viagem_legitima(row["conta"], row["pais"], row.get("estado"), str(row["data"]))
+        resultado_ia = prever_anomalia(row)
+        analise_fraude = avaliar_fraude(
+            row,
+            media_historica=media_hist,
+            frequencia_recente=freq,
+            em_viagem=em_viagem_legitima,
+            resultado_ml=resultado_ia,
+        )
+        status_validacao = "pendente" if analise_fraude["is_fraude"] else "aprovada"
+        _atualizar_is_fraude_transacao(row["id"], analise_fraude["is_fraude"], status_validacao)
 
 
 def adjust_auto_increment() -> None:
@@ -218,12 +352,127 @@ def adjust_auto_increment() -> None:
         conn.close()
 
 
+def get_unevaluated_transacoes_count() -> int:
+    """Conta transações que ainda não foram avaliadas (status_validacao = 'nao_avaliada')"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM transacoes WHERE status_validacao = 'nao_avaliada'")
+        count = cursor.fetchone()[0]
+        return int(count)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
+    """
+    Versão otimizada com:
+    - Cache de estatísticas por conta (uma query)
+    - Bulk update em lotes (reduz queries de 30k para 60)
+    - Processa em batches para não bloquear o servidor
+    """
+    total_unevaluated = get_unevaluated_transacoes_count()
+    
+    if total_unevaluated == 0:
+        print("[FRAUDE] Nenhuma transação não avaliada encontrada.")
+        return 0
+    
+    print(f"[FRAUDE] Iniciando avaliação de {total_unevaluated} transações não avaliadas...")
+    
+    # Cache de estatísticas por conta (uma única query!)
+    print("[FRAUDE] Construindo cache de estatísticas...")
+    stats_cache = _build_estatisticas_cache_for_unevaluated()
+    print(f"[FRAUDE] {len(stats_cache)} contas com histórico")
+    
+    offset = 0
+    total_updated = 0
+    
+    while offset < total_unevaluated:
+        # Busca apenas transações com status_validacao = 'nao_avaliada'
+        transacoes = search_transacoes(status_validacao="nao_avaliada", limit=batch_size, offset=offset)
+        
+        if not transacoes:
+            break
+        
+        updates_batch = []
+        batch_processed = 0
+        
+        for transacao in transacoes:
+            try:
+                hora = transacao.get("hora", "00:00:00")
+                conta = transacao["conta"]
+                
+                # Usa cache em vez de query individual
+                media_hist = stats_cache.get(conta, 0.0)
+                
+                # Uma query por conta (mas com cache local)
+                freq = get_frequencia_recente(conta, transacao["data"], hora, minutos=30)
+                em_viagem_legitima = _transacao_em_viagem_legitima(
+                    conta, transacao["pais"], transacao.get("estado"), transacao["data"]
+                )
+                resultado_ia = prever_anomalia(transacao)
+                analise = avaliar_fraude(
+                    transacao,
+                    media_historica=media_hist,
+                    frequencia_recente=freq,
+                    em_viagem=em_viagem_legitima,
+                    resultado_ml=resultado_ia,
+                )
+
+                updates_batch.append({
+                    "id": transacao["id"],
+                    "is_fraude": analise["is_fraude"],
+                    "status_validacao": "pendente" if analise["is_fraude"] else "aprovada",
+                })
+                batch_processed += 1
+                    
+            except Exception as e:
+                print(f"[FRAUDE] Erro ao avaliar transação {transacao.get('id')}: {e}")
+                continue
+        
+        # Executa bulk update para todo o batch
+        if updates_batch:
+            batch_updated = bulk_update_fraude_status(updates_batch)
+            total_updated += batch_updated
+        
+        offset += batch_size
+        print(f"[FRAUDE] Processadas {min(offset, total_unevaluated)}/{total_unevaluated} transações... ({batch_processed} avaliadas, {len(updates_batch)} atualizadas)")
+    
+    print(f"[FRAUDE] Avaliação concluída! Total de transações atualizadas: {total_updated}")
+    return total_updated
+
+
+def _build_estatisticas_cache_for_unevaluated() -> dict[str, float]:
+    """
+    Carrega estatísticas apenas de contas com transações não avaliadas.
+    Retorna: dict {conta: media_valor}
+    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT DISTINCT t1.conta, AVG(t2.valor) as media_valor
+            FROM transacoes t1
+            LEFT JOIN transacoes t2 ON t1.conta = t2.conta AND t2.is_fraude = 0
+            WHERE t1.is_fraude = 0
+            GROUP BY t1.conta
+        """)
+        rows = cursor.fetchall()
+        return {row["conta"]: float(row["media_valor"]) for row in rows if row["media_valor"]}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def init_database() -> None:
     try:
         load_environment()
         create_table_if_not_exists()
-        import_json_if_table_is_empty()
-        adjust_auto_increment()
+        ensure_status_validacao_default()
+        normalize_existing_status_validacao()
+        print("[APP] Verificando se há transações não avaliadas...")
+        evaluate_fraud_for_unevaluated()
     except Error as exc:
         raise RuntimeError(f"Erro ao inicializar banco de dados: {exc}") from exc
     except Exception as exc:
