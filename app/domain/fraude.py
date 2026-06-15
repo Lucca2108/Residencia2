@@ -116,13 +116,22 @@ def avaliar_fraude(transacao: Any, media_historica: float = 0.0, frequencia_rece
             score += 3
             motivos.append("transação fora do país esperado")
 
-    if resultado_ml.get("is_anomalia_ml"):
-        ml_score = float(resultado_ml.get("score_ml", 0.0))
+    rf_ml = resultado_ml.get("rf", resultado_ml)
+    iforest_ml = resultado_ml.get("iforest") if isinstance(resultado_ml.get("iforest"), dict) else None
+
+    if rf_ml.get("is_anomalia_ml"):
+        ml_score = float(rf_ml.get("score_ml", 0.0))
         score += 3
         if ml_score >= 0.8:
             score += 1
         motivos.append(
-            f"anomalia comportamental detectada por IA (score_ml: {ml_score:.2f})")
+            f"anomalia comportamental detectada por IA (RandomForest score_ml: {ml_score:.2f})")
+
+    if iforest_ml and iforest_ml.get("is_anomalia_ml"):
+        iforest_score = float(iforest_ml.get("score_ml", 0.0))
+        score += 2
+        motivos.append(
+            f"anomalia de padrão detectada por IsolationForest (score_if: {iforest_score:.2f})")
 
     if horario is not None and (
         time(0, 0, 0) <= horario <= time(5, 0, 0)
