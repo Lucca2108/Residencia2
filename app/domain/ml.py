@@ -7,7 +7,7 @@ import joblib
 import pandas as pd
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 
-from app.db.connection import get_connection
+from app.db.connection import get_connection, get_sqlalchemy_engine
 
 MODEL_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATHS = {
@@ -141,12 +141,9 @@ def treinar_modelo_rf(log: bool = True) -> None:
     if log:
         print("[ML] Iniciando extração de dados para treinamento do RandomForest...")
 
-    conn = get_connection()
-    try:
-        query = "SELECT valor, hora, tentativas, tipo_transacao, categoria, pais, estado, dispositivo, is_fraude FROM transacoes"
-        df = pd.read_sql(query, conn)
-    finally:
-        conn.close()
+    engine = get_sqlalchemy_engine()
+    query = "SELECT valor, hora, tentativas, tipo_transacao, categoria, pais, estado, dispositivo, is_fraude FROM transacoes"
+    df = pd.read_sql(query, engine)
 
     if df.empty:
         if log:
@@ -181,12 +178,9 @@ def treinar_modelo_iforest(log: bool = True) -> None:
     if log:
         print("[ML] Iniciando extração de dados para treinamento do IsolationForest...")
 
-    conn = get_connection()
-    try:
-        query = "SELECT valor, hora, tentativas, tipo_transacao, categoria, pais, estado, dispositivo FROM transacoes"
-        df = pd.read_sql(query, conn)
-    finally:
-        conn.close()
+    engine = get_sqlalchemy_engine()
+    query = "SELECT valor, hora, tentativas, tipo_transacao, categoria, pais, estado, dispositivo FROM transacoes"
+    df = pd.read_sql(query, engine)
 
     if df.empty:
         if log:

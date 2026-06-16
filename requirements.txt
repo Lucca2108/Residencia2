@@ -24,5 +24,6 @@ scikit-learn
 joblib
 streamlit
 plotly
+SQLAlchemy
 
 #Para baixar use o comando:     pip install -r requirements.txt

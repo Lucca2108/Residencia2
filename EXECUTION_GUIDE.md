@@ -19,12 +19,12 @@ python scripts/run_dashboard.py
 
 Acesso: `http://localhost:8501`
 
-## 🔄 Opção 3: Reavaliação de Fraude
+## 🔄 Opção 3: Reavaliação de Fraude Não Avaliada
 
-Reavalia todas as transações usando regras de negócio e Machine Learning:
+Reavalia apenas transações com `status_validacao = 'nao_avaliada'` usando regras de negócio e Machine Learning:
 
 ```bash
-python scripts/run_recalcular.py
+python scripts/run_recalcular_nao_avaliadas.py
 ```
 
 **Nota:** Este processo é automático no startup da API, mas pode ser executado manualmente.

@@ -373,39 +373,59 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
     - Processa em batches para não bloquear o servidor
     """
     total_unevaluated = get_unevaluated_transacoes_count()
-    
+
     if total_unevaluated == 0:
         print("[FRAUDE] Nenhuma transação não avaliada encontrada.")
         return 0
-    
+
     print(f"[FRAUDE] Iniciando avaliação de {total_unevaluated} transações não avaliadas...")
-    
+
     # Cache de estatísticas por conta (uma única query!)
     print("[FRAUDE] Construindo cache de estatísticas...")
     stats_cache = _build_estatisticas_cache_for_unevaluated()
     print(f"[FRAUDE] {len(stats_cache)} contas com histórico")
-    
-    offset = 0
+
+    # Para evitar pular registros ao atualizar status durante paginação
+    # primeiro buscamos uma lista estável de IDs não avaliados e então
+    # processamos em batches com base nesses IDs.
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM transacoes WHERE status_validacao = 'nao_avaliada' ORDER BY id")
+        id_rows = cursor.fetchall()
+        ids = [r[0] for r in id_rows]
+    finally:
+        cursor.close()
+        conn.close()
+
+    total_ids = len(ids)
     total_updated = 0
-    
-    while offset < total_unevaluated:
-        # Busca apenas transações com status_validacao = 'nao_avaliada'
-        transacoes = search_transacoes(status_validacao="nao_avaliada", limit=batch_size, offset=offset)
-        
-        if not transacoes:
-            break
-        
+
+    for start in range(0, total_ids, batch_size):
+        batch_ids = ids[start : start + batch_size]
+
+        # Busca as transações completas desse batch por id (consulta estável)
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            placeholders = ",".join(["%s"] * len(batch_ids))
+            cursor.execute(f"SELECT * FROM transacoes WHERE id IN ({placeholders}) ORDER BY id", tuple(batch_ids))
+            transacoes = cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+
         updates_batch = []
         batch_processed = 0
-        
+
         for transacao in transacoes:
             try:
                 hora = transacao.get("hora", "00:00:00")
                 conta = transacao["conta"]
-                
-                # Usa cache em vez de query individual
+
+                # Usa cache em vez de query
                 media_hist = stats_cache.get(conta, 0.0)
-                
+
                 # Uma query por conta (mas com cache local)
                 freq = get_frequencia_recente(conta, transacao["data"], hora, minutos=30)
                 em_viagem_legitima = _transacao_em_viagem_legitima(
@@ -426,19 +446,19 @@ def evaluate_fraud_for_unevaluated(batch_size: int = 500) -> int:
                     "status_validacao": "pendente" if analise["is_fraude"] else "aprovada",
                 })
                 batch_processed += 1
-                    
+
             except Exception as e:
                 print(f"[FRAUDE] Erro ao avaliar transação {transacao.get('id')}: {e}")
                 continue
-        
+
         # Executa bulk update para todo o batch
         if updates_batch:
             batch_updated = bulk_update_fraude_status(updates_batch)
             total_updated += batch_updated
-        
-        offset += batch_size
-        print(f"[FRAUDE] Processadas {min(offset, total_unevaluated)}/{total_unevaluated} transações... ({batch_processed} avaliadas, {len(updates_batch)} atualizadas)")
-    
+
+        processed_count = min(start + batch_processed, total_ids)
+        print(f"[FRAUDE] Processadas {processed_count}/{total_ids} transações... ({batch_processed} avaliadas, {len(updates_batch)} atualizadas)")
+
     print(f"[FRAUDE] Avaliação concluída! Total de transações atualizadas: {total_updated}")
     return total_updated
 
