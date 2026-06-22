@@ -106,7 +106,7 @@ A API disponibiliza interface interativa via Swagger para testes dos endpoints.
 
 ## Estrutura do Projeto
 
-O projeto agora está organizado em pacotes para separar claramente as camadas de configuração, dados, domínio, serviços e API:
+O projeto está organizado em pacotes para separar claramente as camadas de configuração, dados, domínio, serviços, jobs, API e dashboard:
 
 ```bash
 .
@@ -116,26 +116,76 @@ O projeto agora está organizado em pacotes para separar claramente as camadas d
 │   ├── core/
 │   ├── db/
 │   ├── domain/
+│   ├── jobs/
 │   ├── repositories/
 │   ├── services/
 │   ├── utils/
 │   └── schemas.py
 ├── dashboard/
-│   └── app.py
-├── myapi.py                  # Wrapper da API para compatibilidade com uvicorn
-├── dashboard.py             # Wrapper do dashboard para compatibilidade com streamlit
-├── requirements.txt         # Dependências do projeto
-└── data/
-    └── transacoes_treino.json
+│   └── dashboard_app.py
+├── data/
+│   ├── transacoes_treino.json
+│   └── transacoes_treino_sem_fraude.json
+├── notebook/
+│   └── dataset.ipynb
+├── scripts/
+│   ├── run_api.py
+│   ├── run_dashboard.py
+│   ├── run_import.py
+│   └── run_recalcular_nao_avaliadas.py
+├── dashboard.py             # Wrapper de compatibilidade do dashboard
+├── myapi.py                 # Wrapper de compatibilidade da API
+└── requirements.txt         # Dependências do projeto
 ```
 
-Como iniciar a API no VS Code
-Abra o projeto no VS Code, abra o terminal integrado e ative o ambiente virtual. Antes de iniciar a API, crie o banco `bancodobrasil` no MySQL, preencha corretamente o arquivo `.env` com `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` e `DB_PORT`. Em geral, será necessário alterar apenas o usuário e a senha. Garanta também que o schema/banco esteja disponível para conexão. Em seguida, execute o comando `uvicorn app.main:app --reload`. Depois disso, acesse `http://127.0.0.1:8000/docs` no navegador para abrir o Swagger e testar os endpoints da API.
+## Como Executar
+
+Antes de iniciar a aplicação, crie o banco `bancodobrasil` no MySQL e configure o arquivo `.env` com as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` e `DB_PORT`. Na maioria dos casos, você só precisará ajustar usuário, senha e host.
+
+### API
+
+O jeito recomendado de subir a API é:
+
+```bash
+python scripts/run_api.py
+```
+
+Esse script executa o wrapper [myapi.py](myapi.py), que expõe a aplicação FastAPI em `app.main:app`. Se preferir, você também pode iniciar diretamente com:
+
+```bash
+uvicorn myapi:app --reload
+```
+
+Depois disso, acesse `http://127.0.0.1:8000/docs` para abrir o Swagger/OpenAPI.
+
+### Dashboard
+
+O dashboard Streamlit deve ser iniciado com:
+
+```bash
+python scripts/run_dashboard.py
+```
+
+Esse script executa [dashboard/dashboard_app.py](dashboard/dashboard_app.py), que carrega os dados da API `GET /transacoes/dashboard` quando o backend está disponível e faz fallback para o banco local quando necessário.
+
+Se quiser executar diretamente, use:
+
+```bash
+streamlit run dashboard/dashboard_app.py
+```
+
+O wrapper [dashboard.py](dashboard.py) foi mantido por compatibilidade, mas o entrypoint principal é o módulo em `dashboard/dashboard_app.py`.
+
+### Scripts Auxiliares
+
+- `python scripts/run_import.py` - importa os dados de origem para o banco.
+- `python scripts/run_recalcular_nao_avaliadas.py` - recalcula a fraude para transações ainda não avaliadas.
 
 ### Endpoints principais para o frontend
 
 - `GET /` - status básico da API
 - `GET /transacoes` - lista transações com paginação
+- `GET /transacoes/dashboard` - resumo agregado usado pelo dashboard
 - `POST /transacoes` - cria e analisa uma transação
 - `POST /analisar` - analisa uma transação sem persistir
 - `DELETE /transacoes/{id}` - remove uma transação
@@ -184,6 +234,3 @@ A API aceita chamadas do frontend local em:
 - `http://127.0.0.1:5500`
 - `http://localhost:3000`
 - `http://127.0.0.1:3000`
-
-Como iniciar o dashboard
-Execute `streamlit run dashboard.py` para abrir o painel de visualização.
