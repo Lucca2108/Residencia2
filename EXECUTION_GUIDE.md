@@ -110,7 +110,7 @@ Os seguintes arquivos foram movidos para a estrutura organizada:
 - ❌ `recalcular_fraude.py` → ✅ `app/jobs/recalcular_fraude.py`
 - ❌ `importar_json_mysql.py` → ✅ `app/jobs/importar_dados.py`
 - ❌ `ml_motor.py` → ✅ `app/domain/ml.py` (já existia)
-- ❌ `dashboard.py` → ✅ `dashboard/app.py` (já existia)
+- ❌ `dashboard.py` → ✅ `dashboard/dashboard_app.py` (entrypoint do Streamlit)
 - ✅ `myapi.py` → mantido na raiz (entry point do uvicorn)
 
 ---
